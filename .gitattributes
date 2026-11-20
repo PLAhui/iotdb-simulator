@@ -1,0 +1,28 @@
+# 仓库内一律 LF：避免 Windows 检出后整文件 diff
+* text=auto eol=lf
+
+# 明确文本类型，防止个别环境按扩展名误判成二进制
+*.py    text eol=lf
+*.sh    text eol=lf
+*.md    text eol=lf
+*.html  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+
+# 图片与字体：不做换行符转换，不参与文本 diff
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+
+# 二进制文件的 diff 只看是否变化，不给逐行差异
+*.png   -diff
+*.jpg   -diff
+
+# Python：diff 时 hunk 头带函数名，review 更快定位
+*.py    diff=python

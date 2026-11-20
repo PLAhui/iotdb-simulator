@@ -37,6 +37,7 @@ docs(config): 补充 points_per_device 留空的语义
 - 前端：单个 `index.html`，不引入构建工具与前端框架；CSS 变量集中在 `:root`，新增样式跟随现有命名（`.card` / `.lv` / `.pv` 前缀）；
 - **注释写「为什么」**：踩过的坑、版本兼容、性能取舍必须写清；不要写「这是一个函数」这类复述代码的注释；
 - 中文文案统一使用全角标点，界面文案与日志保持同一套术语（层级 / 测点 / 编码范围 / 设备）。
+- 缩进与换行交给编辑器配置：仓库根目录的 [`.editorconfig`](.editorconfig) 规定 UTF-8 / LF / 末尾留一个换行，[`.gitattributes`](.gitattributes) 在 Git 侧再兜一层，避免跨平台提交整文件 diff。
 
 ## 测试
 

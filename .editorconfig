@@ -1,0 +1,33 @@
+# 编辑器统一约定：UTF-8、LF、文件末尾留一个换行、不留行尾空格
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Python：4 空格（PEP 8），行宽控制在 100 列内
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+# Markdown：行尾两个空格是硬换行，不能裁掉
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+
+# YAML / JSON：2 空格
+[*.{yaml,yml,json}]
+indent_size = 2
+
+# Shell：沿用 2 空格
+[*.sh]
+indent_size = 2
+
+# 图片与字体不做文本规整
+[*.{png,jpg,jpeg,gif,ico,woff,woff2}]
+insert_final_newline = false
+trim_trailing_whitespace = false
