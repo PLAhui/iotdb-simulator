@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Added
+- 测点批量输入：逗号 / 顿号 / 分号 / 空格 / 换行都可作分隔符，Excel 整列直接粘贴；同名测点自动去重，解析失败的 token 在提示里点名
+- 测点一键清空：层级展开区右侧「清空」按钮，点一次进入「确认清空」、3 秒内再点才执行
+
+### Changed
+- 测点输入框由 `<input>` 改为单行高度的 `textarea`（随内容长高、最高 104px），保证多行粘贴不被浏览器压成一行；Enter 直接添加，Shift+Enter 换行
+
 ### Removed
 - 移除三维数字孪生视图及其全部相关代码：前端覆盖层（HTML / CSS / JS 约 2,100 行）、`vendor/three.min.js`、后端 `POST /api/sample` 采样接口、`engine.level_measures()`，以及 `vendor` 静态挂载；前端回归为纯四页签工作台
 

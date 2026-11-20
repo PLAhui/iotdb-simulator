@@ -397,6 +397,12 @@
     margin:11px 0 7px;font-size:11px;color:var(--ink2)}
   .chips-hd b{color:#1d4ed8;font-weight:600;font-variant-numeric:tabular-nums}
   .chips-hd .dim{color:var(--ink3);font-size:10.5px}
+  .chips-clear{border:1px solid var(--line);background:#fff;border-radius:7px;padding:2px 9px;
+    font-family:inherit;font-size:10.5px;color:var(--ink2);cursor:pointer;flex:none;
+    transition:.14s var(--ease)}
+  .chips-clear:hover{border-color:#f0a3a0;color:#b42318;background:#fffafa}
+  .chips-clear.armed{border-color:#f0a3a0;color:#b42318;background:#fee4e2;font-weight:560}
+  .chips-clear[hidden]{display:none}
   .lv-switch{border:1px dashed #dbe3f0;border-radius:11px;padding:10px 13px 11px;background:#fcfdff;
     margin-bottom:2px}
   .lv-switch .field label{font-size:11.5px;color:var(--ink2);font-weight:520;margin-bottom:7px}
@@ -419,6 +425,15 @@
   .chip .del:hover{background:#fee4e2;color:#b42318}
   .add-row{display:flex;gap:8px;align-items:center}
   .add-row input{flex:1;font-family:var(--mono)}
+  /* 测点输入用单行高度的 textarea：<input> 会把粘贴进来的换行压成空格，整列粘贴时无法可靠切分 */
+  .add-row textarea{flex:1;min-height:36px;max-height:104px;border:1px solid var(--line2);border-radius:9px;
+    padding:8px 12px;font-size:13px;line-height:1.5;background:#fcfdff;color:var(--ink);outline:none;
+    resize:none;overflow-y:auto;font-family:var(--mono);display:block;
+    transition:border-color .16s var(--ease),box-shadow .16s var(--ease),background .16s}
+  .add-row textarea:hover{border-color:#c6d2e6;background:#fff}
+  .add-row textarea:focus{border-color:var(--brand);background:#fff;
+    box-shadow:0 0 0 3.5px rgba(37,99,235,.12)}
+  .add-row textarea::placeholder{font-family:inherit;color:#a3aebf}
   .quick{font-size:11px;color:var(--ink3);margin-top:9px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
   .quick code{cursor:pointer;background:#f4f7fc;border:1px solid var(--line);padding:2px 8px;
     border-radius:6px;font-family:var(--mono);font-size:10.5px;color:var(--ink2);transition:.14s var(--ease)}
@@ -1361,7 +1376,7 @@
         <div class="lv-body">
           <div class="lv-body-inner">
             <div class="add-row">
-              <input type="text" id="add_${lv.key}" placeholder="添加测点：soc / relaysta / v001-v099，逗号分隔" spellcheck="false">
+              <textarea id="add_${lv.key}" rows="1" placeholder="添加测点：soc / v001-v099；逗号、空格、换行分隔均可，可整列粘贴" spellcheck="false"></textarea>
               <button class="btn primary" onclick="addMeasure('${lv.key}')">添加</button>
             </div>
             <div class="quick">快捷：
@@ -1369,8 +1384,12 @@
               <code onclick="quickAdd('${lv.key}','t001-t099')">t001-t099</code>
               <code onclick="quickAdd('${lv.key}','rsv01-rsv07')">rsv01-rsv07</code>
             </div>
-            <div class="chips-hd"><span>已配测点 <b id="mpn_${lv.key}">0</b></span>
-              <span class="dim">单个即 1 点，范围按编号展开</span></div>
+            <div class="chips-hd">
+              <span>已配测点 <b id="mpn_${lv.key}">0</b>
+                <span class="dim">· 单个算 1 点，范围按编号展开</span></span>
+              <button class="chips-clear" id="clr_${lv.key}" hidden
+                onclick="clearMeasures('${lv.key}',this)">清空</button>
+            </div>
             <div class="chips" id="chips_${lv.key}"></div>
           </div>
         </div>`;
@@ -1384,7 +1403,12 @@
         e.target.classList.toggle('bad',!ok);
         if(!ok) toast('范围无法解析，请用 d0001-d0020 或 c101,c201 格式');
       });
-      document.getElementById('add_'+lv.key).addEventListener('keydown',e=>{if(e.key==='Enter')addMeasure(lv.key);});
+      // 单行高度的 textarea：Enter 直接添加（批量粘贴的主力路径），Shift+Enter 手动换行
+      const addBox=document.getElementById('add_'+lv.key);
+      addBox.addEventListener('keydown',e=>{
+        if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); addMeasure(lv.key); }
+      });
+      addBox.addEventListener('input',()=>autoGrowMeasure(addBox));
       renderChips(lv.key);
     });
   }
@@ -1399,6 +1423,12 @@
     }).join('') : '<span class="chips-empty">暂无测点 · 在上方输入后点「添加」</span>';
     const n=document.getElementById('mpn_'+key);
     if(n) n.textContent=lv.measures.length;
+    // 清空按钮只在该层有测点时出现；数量归零顺手解除"待确认"状态
+    const clr=document.getElementById('clr_'+key);
+    if(clr){
+      clr.hidden=!lv.measures.length;
+      if(!lv.measures.length) disarmClear(clr);
+    }
     const c=document.getElementById('mpnct_'+key);
     if(c){
       const mc=measureCount(lv);
@@ -1432,15 +1462,68 @@
       lv.scrollIntoView({block:'nearest'});
     },60);
   });
-  function addMeasure(key){
-    const inp=document.getElementById('add_'+key), raw=inp.value.split(/[,，\s]+/).filter(Boolean);
-    let added=0;
-    raw.forEach(x=>{ const p=parseMeasure(x); if(p){ allLevels().find(l=>l.key===key).measures.push(p); added++; } });
-    inp.value='';
-    if(added) refresh(); else toast('无法解析，请用 soc 或 v001-v099 格式');
+  // ---- 测点批量输入 ----
+  // 分隔符认 逗号 / 中文逗号 / 顿号 / 分号 / 空格 / 制表符 / 换行：
+  // 从 Excel 整列复制、或从文本里贴一列 v008…v021，都按同一套规则切开。
+  function splitMeasures(text){
+    return String(text||'').split(/[,，、;；\s]+/).map(s=>s.trim()).filter(Boolean);
   }
-  function quickAdd(key,name){ allLevels().find(l=>l.key===key).measures.push(parseMeasure(name)); refresh(); }
+  // 输入框随内容长高，最多 104px（约 4 行），再多就在框内滚动，不挤压下面的 chips
+  function autoGrowMeasure(el){
+    if(!el) return;
+    el.style.height='auto';
+    el.style.height=Math.max(36,Math.min(el.scrollHeight,104))+'px';
+  }
+  function addMeasure(key){
+    const lv=allLevels().find(l=>l.key===key); if(!lv) return;
+    const box=document.getElementById('add_'+key), raw=splitMeasures(box?box.value:'');
+    if(!raw.length){ toast('先输入测点，例如 soc、relaysta 或 v001-v099'); return; }
+    let added=0, dup=0; const bad=[];
+    raw.forEach(tok=>{
+      const p=parseMeasure(tok);
+      if(!p){ bad.push(tok); return; }
+      if(lv.measures.some(m=>m.name===p.name)){ dup++; return; }  // 同名不重复加，避免 chips 里堆重复项
+      lv.measures.push(p); added++;
+    });
+    if(box){ box.value=''; autoGrowMeasure(box); box.focus({preventScroll:true}); }
+    if(added) refresh();
+    const parts=[];
+    if(added) parts.push(`已添加 ${added} 个测点`);
+    if(dup) parts.push(`跳过 ${dup} 个重复`);
+    if(bad.length) parts.push(`无法解析 ${bad.slice(0,3).join('、')}${bad.length>3?' 等 '+bad.length+' 个':''}`);
+    // 单个添加成功就安静处理，批量或有问题时才提示
+    if(bad.length || added>1 || (dup&&!added)) toast(parts.join(' · '));
+  }
+  function quickAdd(key,name){
+    const lv=allLevels().find(l=>l.key===key), p=parseMeasure(name);
+    if(!lv||!p) return;
+    if(lv.measures.some(m=>m.name===p.name)){ toast('该范围已在列表中'); return; }  // 与批量输入同一套去重口径
+    lv.measures.push(p); refresh();
+  }
   function delMeasure(key,i){ allLevels().find(l=>l.key===key).measures.splice(i,1); refresh(); }
+
+  // 一键清空本层测点：第一次点变成「确认清空」，3 秒内再点才真正执行
+  // 一层的 chips 常有一二十个，删错一个还能补，全清空没法撤销，所以加一道轻确认
+  let clearTimer=null;
+  function disarmClear(btn){
+    if(!btn) return;
+    btn.dataset.armed='0'; btn.classList.remove('armed'); btn.textContent='清空';
+  }
+  function clearMeasures(key,btn){
+    const lv=allLevels().find(l=>l.key===key); if(!lv||!lv.measures.length) return;
+    if(btn && btn.dataset.armed!=='1'){
+      btn.dataset.armed='1'; btn.classList.add('armed'); btn.textContent='确认清空';
+      clearTimeout(clearTimer);
+      clearTimer=setTimeout(()=>disarmClear(btn),3000);
+      return;
+    }
+    clearTimeout(clearTimer);
+    const removed=measureCount(lv);
+    lv.measures.length=0;
+    disarmClear(btn);
+    refresh();
+    toast(`已清空「${lv.name}」的 ${removed} 个测点`);
+  }
 
   function prefixStr(){ return `root.${state.station||'{场站}'}.${state.zone||'{站区}'}.${state.signal}`; }
   function dumpCabin(){
