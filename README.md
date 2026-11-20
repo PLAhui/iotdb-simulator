@@ -86,11 +86,11 @@ IoTDB 模拟工具通常是一段脚本：改代码、跑命令、看日志。�
 ### 安装与启动
 
 ```bash
-git clone <your-repo-url> iotdb_simulator
-cd iotdb_simulator
+git clone https://github.com/PLAhui/iotdb-simulator.git
+cd iotdb-simulator
 
 python3 -m venv .venv && source .venv/bin/activate
-c
+pip install -r requirements.txt
 
 ./start.sh          # 默认 8000 端口
 ./start.sh 8791     # 或指定端口
