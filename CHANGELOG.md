@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+_开发中，暂无待发布条目。_
+
+### Planned
+- 写入并发化（按设备分片多线程提交）
+- 异常注入与数据质量开关接入界面
+- 配置导入 / 导出与方案快照
+- 写入前预检（序列冲突、类型不一致）
+
+## [1.2.0] - 2026-11-20
+
 ### Added
 - 写入对象可选：`write.targets` 支持 `BMS` / `PCS` / `XB` 任意组合，界面「生成与预览 → 写入设置」用三个 chip 勾选（chip 内显示该组序列数）；被排除的分组不展开、不生成 Tablet，序列数 / 设备数 / 进度分母同步收窄
 - `/api/scale` 新增 `targets` / `target_groups` / `target_series` / `target_devices`，`series` / `writable_devices` 保持整站口径以便对照
@@ -24,12 +34,6 @@
 
 ### Removed
 - 移除三维数字孪生视图及其全部相关代码：前端覆盖层（HTML / CSS / JS 约 2,100 行）、`vendor/three.min.js`、后端 `POST /api/sample` 采样接口、`engine.level_measures()`，以及 `vendor` 静态挂载；前端回归为纯四页签工作台
-
-### Planned
-- 写入并发化（按设备分片多线程提交）
-- 异常注入与数据质量开关接入界面
-- 配置导入 / 导出与方案快照
-- 写入前预检（序列冲突、类型不一致）
 
 ## [1.1.0] - 2026-11-19
 

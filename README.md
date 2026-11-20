@@ -12,7 +12,7 @@
 
 ![License](https://img.shields.io/badge/License-MIT-3da639)
 
-![Version](https://img.shields.io/badge/version-1.1.0-4f46e5)
+![Version](https://img.shields.io/badge/version-1.2.0-4f46e5)
 
 ---
 
