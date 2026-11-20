@@ -41,7 +41,8 @@ config.yaml
 AppConfig ──┬─→ scale() ──────────────→ /api/scale ──→ 前端规模估算
             │                              ▲
             │                              └─ 前端 parseRange 同构实现（实时预览，不等后端）
-            └─→ iter_devices() ──→ (路径, 分组, 层级, 测点列表)
+            └─→ iter_devices(targets) ──→ (路径, 分组, 层级, 测点列表)
+                  ↑ 只展开 write.targets 里的分组（BMS / PCS / XB）
                                        │
                                        ▼
                                  Generator.value_for（规则匹配 → 模型计算）
@@ -114,7 +115,15 @@ AppConfig ──┬─→ scale() ──────────────→ 
 
 **方案**：`writable_device_count()` 只累加 `measure_count > 0` 的层，与 `iter_devices` 的实际产出严格一致。
 
-### 4.8 前后端解析同构
+### 4.8 写入对象在生成器层过滤
+
+"只写 BMS / 只写箱变"如果放在 `Tablet` 组装之后过滤，`_make_tablet` 仍会为不写的设备生成全部测点值——68 万序列白白算一遍。
+
+**方案**：过滤放在 `iter_devices(cfg, targets)` 的循环入口，三个分支各自判一次 `"BMS" in allow` / `"PCS" in allow` / `"XB" in allow`，被排除的分组连生成器都不会进入。`writable_device_count()` 与 `scale()['target_series' / 'target_devices']` 用同一份 `write_targets(cfg)`，保证进度分母与产出严格一致。
+
+**取舍**：`scale()` 同时返回整站口径（`series` / `writable_devices`）与写入对象口径（`target_*`），前端才能显示"已排除箱变 52 序列 / 4 台设备"。空选择按"全部"兜底，宁可多写也不要静默什么都不写。
+
+### 4.9 前后端解析同构
 
 前端 `parseRange` / `parseMeasure` 与后端 `parser.py` 是两份实现，必须给出**完全相同**的结果，否则会出现"预览显示 74 台、实际写 20 台"这类静默偏差。
 

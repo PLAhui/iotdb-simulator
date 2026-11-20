@@ -43,6 +43,10 @@ class Rule:
     period: int = 86400  # 正弦周期（秒），仅 sine 使用
 
 
+# 写入对象（设备大类）。顺序即 UI 展示顺序，也是日志里的排列顺序。
+TARGET_GROUPS = ("BMS", "PCS", "XB")
+
+
 @dataclass
 class WriteConfig:
     interval_ms: int = 1000
@@ -53,6 +57,8 @@ class WriteConfig:
     rate_limit: int = 0         # 每秒最多写入点数，0 表示不限速
     threads: int = 4            # 写入线程数
     dry_run: bool = False       # true 时只走完整流程但不真实连接 IoTDB（用于自检）
+    # 写入对象：只生成并写入这些设备大类的数据，默认三类全写
+    targets: List[str] = field(default_factory=lambda: list(TARGET_GROUPS))
 
 
 @dataclass
@@ -215,6 +221,14 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
         except (TypeError, ValueError):
             return default
 
+    # targets：允许小写、允许重复、允许乱序；未知值丢弃，空选择按"全部"兜底
+    raw_targets = wd.get("targets", wd.get("groups"))
+    if raw_targets is None:
+        targets = list(TARGET_GROUPS)
+    else:
+        picked = {str(t).strip().upper() for t in raw_targets if str(t).strip()}
+        targets = [g for g in TARGET_GROUPS if g in picked] or list(TARGET_GROUPS)
+
     write = WriteConfig(
         interval_ms=max(_as_int(wd.get("interval_ms"), 1000), 1),
         mode=wd.get("mode", "realtime") or "realtime",
@@ -224,6 +238,7 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
         rate_limit=_as_int(wd.get("rate_limit"), 0),
         threads=max(_as_int(wd.get("threads"), 4), 1),
         dry_run=bool(wd.get("dry_run", False)),
+        targets=targets,
     )
     return AppConfig(
         connections=connections, active_connection=merged.get("active_connection", "cfg1"),

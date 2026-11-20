@@ -111,3 +111,4 @@ write:
   rate_limit: 0            # 每秒最多写入点数，0 = 不限速
   threads: 4               # 预留：当前写入为串行提交
   dry_run: false           # true = 不连真库，走完整流程用于自检
+  targets: [BMS, PCS, XB]  # 写入对象：只生成并写入这些分组；只写箱变就写 [XB]，全选即全站

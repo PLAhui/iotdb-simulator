@@ -193,9 +193,9 @@
 
   #gen .card-hd{margin-bottom:10px}
   #gen .notice{margin-top:10px}
-  #gen .linkbtns{margin-top:11px}
+  #gen .linkbtns{margin-top:10px}
   #gen .field .hint{line-height:1.6}
-  .gen-actions{margin-top:14px;padding-top:0;display:flex;gap:10px;align-items:center}
+  .gen-actions{margin-top:14px;padding-top:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 
   .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 22px}
@@ -225,6 +225,27 @@
   .radio input{margin:0;accent-color:var(--brand)}
   .radio code{font-family:var(--mono);font-size:11.5px;color:#3d4a66}
   .radio.sel code{color:#1e4fc4}
+
+  /* 写入对象：勾选设备大类（BMS / PCS / 箱变），只写选中的分组 */
+  .tgt-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .tgt-lb{font-size:12px;color:var(--ink2);font-weight:520;margin-right:1px;flex:none}
+  .tgt-row .radio{padding:5px 11px;font-size:12px;gap:6px}
+  .tgt-row .radio code{font-size:11px;background:#f4f7fe;border-radius:4px;padding:0 4px;
+    color:#8b97ab;transition:color .16s var(--ease)}
+  .tgt-row .radio.sel code{color:#1e4fc4;background:rgba(37,99,235,.09)}
+  .tgt-row .radio input{width:13px;height:13px}
+  .tgt-row .tgt-sum{margin-left:auto;font-size:11.5px;color:var(--ink3);white-space:nowrap}
+  .tgt-row .tgt-sum b{color:var(--ink2);font-weight:560;font-variant-numeric:tabular-nums}
+  .tgt-field{margin:0 0 9px}
+
+  /* 生成页：新增写入对象行后整体收一档，保住一屏 */
+  #gen .card{padding:13px 17px}
+  #gen .card-hd{margin-bottom:10px}
+  #gen .grid2{gap:11px 22px}
+  #gen .field{gap:5px}
+  #gen .notice{margin-top:10px}
+  #gen .linkbtns{margin-top:11px}
+  #gen .gen-actions{margin-top:12px}
 
   /* 连接配置列表：保存多套，选中其一 */
   .cfg-list{display:flex;flex-direction:column;gap:8px}
@@ -597,6 +618,8 @@
     .card{padding:12px 15px 13px}
     .card-hd{margin-bottom:9px}
     .card-hd .desc{font-size:12px;line-height:1.6}
+    #gen .card-hd .desc{display:none}
+    #gen .card{padding:11px 15px}
     #rule table th,#rule table td{padding:4px 12px}
     .notice{padding:8px 13px;margin-top:10px}
     #rule .notice{margin:0 0 10px}
@@ -1098,7 +1121,16 @@
         </span>
         <div class="card-tt">
           <h2>写入设置</h2>
-          <p class="desc">四个参数分别控制：数据点的时间密度、每台设备写几个点、时间轴锚在哪、以及多少台设备打包提交一次</p>
+          <p class="desc">先选写入对象（可只写 BMS / PCS / 箱变其一），再用四个参数控制：数据点的时间密度、每台设备写几个点、时间轴锚在哪、多少台设备打包提交一次</p>
+        </div>
+      </div>
+      <div class="field tgt-field">
+        <div class="tgt-row" id="targetRow">
+          <span class="tgt-lb">写入对象</span>
+          <label class="radio sel" data-g="BMS"><input type="checkbox" checked><span>BMS</span><code id="tg_BMS">—</code></label>
+          <label class="radio sel" data-g="PCS"><input type="checkbox" checked><span>PCS</span><code id="tg_PCS">—</code></label>
+          <label class="radio sel" data-g="XB"><input type="checkbox" checked><span>箱变</span><code id="tg_XB">—</code></label>
+          <span class="tgt-sum" id="tgtSum"></span>
         </div>
       </div>
       <div class="grid2">
@@ -1191,7 +1223,8 @@
     {id:'cfg1', name:'本地', host:'127.0.0.1',   port:'6667', user:'root', pwd:'root', database:'root.cm'},
     {id:'cfg2', name:'测试', host:'192.168.1.10', port:'6667', user:'root', pwd:'root', database:'root.cm'},
   ];
-  const state = { station:'cm', zone:'z01', signal:'yc', order:'forward', group:'BMS', pcsSub:false, activeDbId:'cfg1' };
+  const state = { station:'cm', zone:'z01', signal:'yc', order:'forward', group:'BMS', pcsSub:false,
+                  activeDbId:'cfg1', targets:['BMS','PCS','XB'], writeExtra:null };
   function activeDb(){ return DB_CONFIGS.find(c=>c.id===state.activeDbId) || DB_CONFIGS[0]; }
 
   // ---- 连接配置：保存多套，选中其一使用 ----
@@ -1725,60 +1758,115 @@
     }
   }
 
+  // 写入对象：三个设备大类，顺序即界面顺序
+  const TARGET_KEYS=['BMS','PCS','XB'];
+  const TARGET_LABEL={BMS:'BMS',PCS:'PCS',XB:'箱变'};
+  function activeTargets(){ return TARGET_KEYS.filter(g=>state.targets.includes(g)); }
+  function targetsText(){ return activeTargets().map(g=>TARGET_LABEL[g]).join(' + '); }
+
+  // 勾选状态与每组序列数：数字直接写进 chip，勾掉谁马上能看到少了多少
+  function renderTargetRow(perGroup){
+    TARGET_KEYS.forEach(g=>{
+      const on=state.targets.includes(g);
+      const chip=document.querySelector(`#targetRow .radio[data-g="${g}"]`);
+      if(chip){ chip.classList.toggle('sel',on); const inp=chip.querySelector('input'); if(inp) inp.checked=on; }
+      const n=document.getElementById('tg_'+g);
+      if(n && perGroup){
+        const series=perGroup[g].series;
+        n.textContent=series?nfmt(series):'—';
+        n.title=series?`${series.toLocaleString('en-US')} 条时间序列`:'该分组当前没有可写测点';
+      }
+    });
+    const sum=document.getElementById('tgtSum');
+    if(sum && perGroup){
+      const cnt=activeTargets().length;
+      sum.innerHTML=cnt===TARGET_KEYS.length
+        ? `全部写入 · <b>${nfmt(TARGET_KEYS.reduce((a,g)=>a+perGroup[g].series,0))}</b> 序列`
+        : `写 ${cnt} 组 · <b>${nfmt(activeTargets().reduce((a,g)=>a+perGroup[g].series,0))}</b> 序列`;
+    }
+  }
+
   function renderStats(){
     const fmt=n=>Number(n||0).toLocaleString('en-US');
-    // 可写设备数：只统计挂了测点的层，与后端 writable_device_count 口径一致
-    const writableDevices=()=>{
-      let n=0;
-      allLevels().forEach(lv=>{ if(lv.measures&&lv.measures.length) n+=nodeCount(lv.key)||0; });
-      return n;
-    };
-    const allNodes=()=>{
-      let n=0; allLevels().forEach(lv=>{ n+=nodeCount(lv.key)||0; }); return n;
-    };
+    const active=new Set(state.targets);
 
-    let total=0; const parts=[]; const rows=[];
-    ['BMS','PCS','XB'].forEach(g=>{
-      let sub=0;
+    // 按分组累计：序列数、挂了测点的设备数、全部树节点数
+    const perGroup={}; const rows=[]; const parts=[];
+    let total=0, devW=0, devAll=0;
+    TARGET_KEYS.forEach(g=>{
+      let sub=0, gDev=0, gNodes=0;
       GROUPS[g].forEach(lv=>{
         const mp=measureCount(lv);
+        const on=active.has(g);
         // PCS 子层未启用：有配置测点则列出并标注"未启用（0 节点）"，否则跳过
         if(lv.key==='pcsd' && !state.pcsSub){
           if(mp>0) rows.push({group:g,name:lv.name,range:lv.range,nodes:0,mp,s:0,note:'未启用'});
           return;
         }
         const nodes=nodeCount(lv.key)||0, s=nodes*mp;
-        sub+=s;
-        rows.push({group:g,name:lv.name,range:lv.range,nodes,mp,s,note:''});
+        sub+=s; gNodes+=nodes;
+        if(mp>0) gDev+=nodes;
+        // 未勾选的分组也列出来，标注"未选"，避免明细里凭空少了一组
+        rows.push({group:g,name:lv.name,range:lv.range,nodes,mp,s,note:on?'':'未选'});
       });
-      parts.push(`${g} ${sub.toLocaleString('en-US')}`);
-      total+=sub;
+      perGroup[g]={series:sub,devices:gDev,nodes:gNodes};
+      // 没有任何可写测点的分组写"未配"，避免出现"PCS 0 + 箱变 0"这种像出错的读数
+      parts.push(`${TARGET_LABEL[g]} ${sub?sub.toLocaleString('en-US'):'未配'}`);
+      if(active.has(g)){ total+=sub; devW+=gDev; devAll+=gNodes; }
     });
+    renderTargetRow(perGroup);
 
-    const devW=writableDevices(), devAll=allNodes();
     const ppdEl=document.getElementById('pointsPerDevice');
     const ppdRaw=ppdEl?String(ppdEl.value).trim():'';
     const streamMode=(ppdRaw==='');            // 留空 = 持续写入，总量不确定
     const ppd=streamMode?0:(Number(ppdRaw)||0);
     const estPts=ppd?total*ppd:0;
 
+    // 整站全量（不受写入对象影响），用于"已排除多少"的对照
+    const allSeries=TARGET_KEYS.reduce((a,g)=>a+perGroup[g].series,0);
+    const allDev=TARGET_KEYS.reduce((a,g)=>a+perGroup[g].devices,0);
+
     // 保存统计快照，供各卡片展开各自明细
-    STATS={total, devW, devAll, ppd, streamMode, estPts, rows};
+    STATS={total, devW, devAll, ppd, streamMode, estPts, rows, perGroup, allSeries, allDev,
+           targets:activeTargets().slice()};
     const arrow=k=>`<span class="arrow">${state.statKey===k?'▴':'▾'}</span>`;
+    const scopeLbl=activeTargets().length===TARGET_KEYS.length?'':' · 已选写入对象';
     document.getElementById('statGrid').innerHTML=`
-      <div class="stat${state.statKey==='series'?' active':''}" data-k="series"><div class="n">${fmt(total)}${arrow('series')}</div><div class="l">时间序列总数</div></div>
+      <div class="stat${state.statKey==='series'?' active':''}" data-k="series"><div class="n">${fmt(total)}${arrow('series')}</div><div class="l">时间序列总数${scopeLbl}</div></div>
       <div class="stat hi${state.statKey==='devices'?' active':''}" data-k="devices"><div class="n">${fmt(devW)}${arrow('devices')}</div><div class="l">可写设备数（有测点）</div></div>
       <div class="stat${state.statKey==='nodes'?' active':''}" data-k="nodes"><div class="n">${fmt(devAll)}${arrow('nodes')}</div><div class="l">树节点总数</div></div>
       <div class="stat warn${state.statKey==='points'?' active':''}" data-k="points"><div class="n" style="font-size:${streamMode?'19px':'25px'}">${streamMode?'持续写入':(estPts?fmt(estPts):'—')}${arrow('points')}</div><div class="l">${streamMode?'不限总量 · 点停止结束':'本次写入数据点数'}</div></div>`;
 
+    // 提示条：写清"写哪些组"，被排除的组把量也报出来
     const d=getRange('d');
-    document.getElementById('scaleNotice').innerHTML=
-      `分组构成：${parts.join(' + ')} · 共 ${fmt(devW)} 台可写设备。`
-      +`首期单舱可将堆范围改为 <code>d0001-d0001</code>（BMS 缩小约 ${d?d.count:20} 倍）。`;
+    const skipped=TARGET_KEYS.filter(g=>!active.has(g));
+    let notice;
+    if(!skipped.length){
+      notice=`写入对象：${parts.join(' + ')} · 共 <b>${fmt(devW)}</b> 台可写设备。`
+        +`首期单舱可将堆范围改为 <code>d0001-d0001</code>（BMS 缩小约 ${d?d.count:20} 倍）。`;
+    }else{
+      const lostSer=allSeries-total, lostDev=allDev-devW;
+      notice=`写入对象：<b>${targetsText()}</b>，已排除 ${skipped.map(g=>TARGET_LABEL[g]).join(' / ')}`
+        +`（${fmt(lostSer)} 序列 / ${fmt(lostDev)} 台设备）；仅这些组的设备会被生成与写入。`
+        +`整站全量 ${fmt(allSeries)} 序列 / ${fmt(allDev)} 台可写设备。`;
+    }
+    document.getElementById('scaleNotice').innerHTML=notice;
+
+    // 生成按钮旁的回显：真正点下去之前再确认一次范围
+    renderGenHint();
 
     // 明细面板：按当前选中的卡片渲染对应内容
     if(!document.getElementById('scaleDetail').hidden) renderDetail(state.statKey);
     renderHeroMeta();
+  }
+
+  // 生成按钮旁的"本次将写入 …"回显；运行中由 applyRunState 覆盖成进度文案
+  function renderGenHint(){
+    const hint=document.getElementById('genHint'), s=STATS;
+    if(!hint||!s) return;
+    const cnt=`${targetsText()} · ${nfmt(s.total)} 序列 / ${nfmt(s.devW)} 台`;
+    hint.textContent=s.streamMode?`将写入 ${cnt} · 持续写入，点停止结束`
+                                :`将写入 ${cnt} · ${nfmt(s.estPts)} 点`;
   }
 
   // 统计快照与当前展开的卡片（series/devices/nodes/points）
@@ -1845,24 +1933,30 @@
   // items 用生成器惰性产出，整站 68 万序列也不会一次性占满内存
   function detailSpec(key){
     const nodes=walkTree();
-    const devs=nodes.filter(n=>n.measures.length>0);
+    const active=new Set(state.targets);
+    // 只列"会被写入"的设备：测点非空 且 分组被勾选
+    const devs=nodes.filter(n=>n.measures.length>0 && active.has(n.group));
+    const emptyN=nodes.filter(n=>!n.measures.length).length;               // 测点为空
+    const unselN=nodes.filter(n=>n.measures.length&&!active.has(n.group)).length; // 分组未选
     const ppd=STATS.ppd||0, stream=STATS.streamMode;
+    const scopeTag=active.size<TARGET_KEYS.length?`（仅 ${targetsText()}）`:'';
     if(key==='devices'){
       return {
         cols:['序号','分组','层','设备路径','测点数','序列数'], pathIdx:3, numCols:[4,5],
         items:()=>devs.map((n,i)=>[i+1,n.group,LAYER_NAME[n.key]||n.key,n.path,n.measures.length,n.measures.length]),
         total:devs.length,
-        cap:`可写设备 <b>${nfmt(devs.length)}</b> 台，每台一行（树里共 ${nfmt(nodes.length)} 个节点，`
-          +`其中 <b>${nfmt(nodes.length-devs.length)}</b> 个测点为空、不写入）`,
+        cap:`可写设备 <b>${nfmt(devs.length)}</b> 台，每台一行（树里共 ${nfmt(nodes.length)} 个节点：`
+          +`<b>${nfmt(emptyN)}</b> 个测点为空${unselN?`、<b>${nfmt(unselN)}</b> 个分组未选`:''}，均不写入）`,
         file:'可写设备明细'};
     }
     if(key==='nodes'){
       return {
         cols:['序号','分组','层','节点路径','测点数','是否写入'], pathIdx:3, numCols:[4],
         items:()=>nodes.map((n,i)=>[i+1,n.group,LAYER_NAME[n.key]||n.key,n.path,n.measures.length,
-          n.measures.length?'写入':'不写入（无测点）']),
+          !n.measures.length?'不写入（无测点）':(active.has(n.group)?'写入':'不写入（未选写入对象）')]),
         total:nodes.length,
-        cap:`树节点 <b>${nfmt(nodes.length)}</b> 个，每个节点一行；其中 <b>${nfmt(devs.length)}</b> 个挂了测点`,
+        cap:`树节点 <b>${nfmt(nodes.length)}</b> 个，每个节点一行；其中 <b>${nfmt(devs.length)}</b> 个会写入`
+          +`（挂了测点且分组在写入对象内）`,
         file:'树节点明细'};
     }
     if(key==='points'){
@@ -1879,11 +1973,11 @@
       return {
         cols, pathIdx:2, monoCols:[3], numCols:stream?[4]:[4,5], gen,
         total:STATS.total,
-        cap:stream
+        cap:scopeTag+(stream
           ? `每设备点数<b>留空</b> → 持续写入，按采样周期一轮轮写，<b>总量不固定</b>；下表按「设备 × 测点」逐条列出 `
             +`<b>${nfmt(STATS.total)}</b> 条序列，每条每轮写 1 点`
           : `数据点数 ＝ 序列数 × 每设备点数（${nfmt(ppd)}）。按「设备 × 测点」逐条列出 <b>${nfmt(STATS.total)}</b> 条序列，`
-            +`合计 <b>${nfmt(STATS.estPts)}</b> 点（同一设备不同测点各占一行）`,
+            +`合计 <b>${nfmt(STATS.estPts)}</b> 点（同一设备不同测点各占一行）`),
         file:'写入点数明细'};
     }
     // series：一条时间序列一行（生成器，避免整站几十万行一次性建数组）
@@ -1894,7 +1988,7 @@
     return {
       cols:['序号','分组','层','时间序列路径'], pathIdx:3, numCols:[], gen,
       total:STATS.total,
-      cap:`时间序列 <b>${nfmt(STATS.total)}</b> 条，每条一行（挂了测点的节点 × 该层测点数）`,
+      cap:scopeTag+`时间序列 <b>${nfmt(STATS.total)}</b> 条，每条一行（挂了测点的节点 × 该层测点数）`,
       file:'时间序列明细'};
   }
   function nfmt(n){ return Number(n||0).toLocaleString('en-US'); }
@@ -2035,6 +2129,22 @@
   // 每设备点数影响"本次预计写入点数"，改了就重算估算
   document.getElementById('pointsPerDevice').addEventListener('input',renderStats);
   document.getElementById('interval').addEventListener('input',renderHeroMeta);
+
+  // 写入对象：多选，至少保留一个；改了立刻重算规模（序列数/设备数/点数都跟着变）
+  document.querySelectorAll('#targetRow .radio').forEach(el=>{
+    el.addEventListener('click',e=>{
+      e.preventDefault();                       // 勾选状态以 state 为准，别让原生 checkbox 先翻一次
+      const g=el.dataset.g, on=state.targets.includes(g);
+      if(on && state.targets.length===1){ toast('至少要保留一个写入对象'); return; }
+      state.targets = on ? state.targets.filter(x=>x!==g)
+                         : TARGET_KEYS.filter(x=>x===g||state.targets.includes(x));
+      refresh();
+    });
+    // 键盘：label 内的 checkbox 被 preventDefault 后，用 Space / Enter 手动切换
+    el.addEventListener('keydown',e=>{
+      if(e.key===' '||e.key==='Enter'){ e.preventDefault(); el.click(); }
+    });
+  });
 
   // 测点类型由信号类型决定：yc 遥测 → FLOAT，yx 遥信 → BOOLEAN
   const MODEL_OPTIONS = [
@@ -2328,14 +2438,14 @@
       }[state];
       setStatus(meta[0],meta[1]); dot.className='dot '+meta[2];
       gen.disabled=false; gen.innerHTML='生成并写入'; stop.disabled=true;
-      hint.textContent='日志与进度见页面底部控制台';
+      renderGenHint();
       bar.classList.remove('active');
       if(meta[3]){ bar.style.width=meta[3]; head.textContent=' 100% · 写入完成'; }
     }else{ // idle
       running=false;
       setStatus('空闲',''); dot.className='dot';
       gen.disabled=false; gen.innerHTML='生成并写入'; stop.disabled=true;
-      hint.textContent='日志与进度见页面底部控制台';
+      renderGenHint();
       bar.classList.remove('active'); bar.style.width='0%'; head.textContent='';
     }
   }
@@ -2397,7 +2507,12 @@
         // 留空 = 持续写入（传 null），填数字 = 一次性写 N 点
         points_per_device: (()=>{ const el=document.getElementById('pointsPerDevice');
           const v=el?String(el.value).trim():''; return v===''?null:Math.max(Number(v)||1,1); })(),
-        rate_limit: 0, threads: 4, dry_run: false,
+        // 写入对象：只生成并写入这些设备大类
+        targets: activeTargets(),
+        // 这三项没有界面入口，沿用从配置读到的值，避免每次保存把它们重置回默认
+        rate_limit: (state.writeExtra&&state.writeExtra.rate_limit)||0,
+        threads: (state.writeExtra&&state.writeExtra.threads)||4,
+        dry_run: !!(state.writeExtra&&state.writeExtra.dry_run),
       },
     };
     return cfg;
@@ -2524,7 +2639,13 @@
         if(cfg.rules&&cfg.rules.length){ RULE_ROWS.splice(0,RULE_ROWS.length,...cfg.rules.map(r=>({
           cat:r.cat,min:r.min,max:r.max,unit:r.unit,model:r.model,match:r.match,
         }))); }
-        if(cfg.write){ if(document.getElementById('interval')) document.getElementById('interval').value=cfg.write.interval_ms;
+        if(cfg.write){ if(Array.isArray(cfg.write.targets)&&cfg.write.targets.length){
+            state.targets=TARGET_KEYS.filter(g=>cfg.write.targets.map(x=>String(x).toUpperCase()).includes(g));
+          }
+          // 没有界面入口的写入参数：原样留住，保存时再带回，避免每次保存都重置
+          state.writeExtra={ rate_limit:cfg.write.rate_limit||0, threads:cfg.write.threads||4,
+                             dry_run:!!cfg.write.dry_run };
+          if(document.getElementById('interval')) document.getElementById('interval').value=cfg.write.interval_ms;
           if(document.getElementById('pointsPerDevice')){
             const v=cfg.write.points_per_device;
             document.getElementById('pointsPerDevice').value=(v==null?'':v);

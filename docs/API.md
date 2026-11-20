@@ -93,17 +93,28 @@ curl -X POST http://127.0.0.1:8000/api/config \
   "devices": 22168,
   "writable_devices": 18328,
   "series": 681960,
-  "points_per_cycle": 681960
+  "points_per_cycle": 681960,
+  "targets": ["BMS", "PCS", "XB"],
+  "target_groups": {"BMS": {"series": 659060, "devices": 16420},
+                    "PCS": {"series": 22848, "devices": 1904},
+                    "XB":  {"series": 52,    "devices": 4}},
+  "target_series": 681960,
+  "target_devices": 18328
 }
 ```
 
 | 字段 | 含义 |
 |---|---|
 | `counts` | 各层节点数；`pcsd` 在 `pcs_sub=false` 时为 0 |
-| `groups` | 各组序列数 = 节点数 × 该层测点数 |
+| `groups` | 各组序列数 = 节点数 × 该层测点数（整站口径） |
 | `devices` | 全部节点数（含没配测点的层） |
-| `writable_devices` | 实际会写入的设备数（只算挂了测点的层），**进度分母** |
-| `series` | 总时间序列数 |
+| `writable_devices` | 实际会写入的设备数（只算挂了测点的层），**整站口径** |
+| `series` | 总时间序列数（整站口径） |
+| `targets` | 本次写入对象，来自 `write.targets` |
+| `target_groups` | 各分组的序列数与可写设备数，供前端在勾选框里显示 |
+| `target_series` / `target_devices` | **只统计写入对象**的序列数与设备数，也是写入任务的进度分母 |
+
+`series` / `writable_devices` 始终是整站数字，`target_*` 才受 `write.targets` 影响；两者同时返回，前端才能显示"已排除箱变 52 序列 / 4 台设备"这类对照。
 
 ## POST /api/run
 
@@ -118,6 +129,11 @@ curl -X POST http://127.0.0.1:8000/api/config \
 ```json
 { "ok": false, "error": "任务已在运行" }
 ```
+
+写入范围取自 `config.write.targets`（`BMS` / `PCS` / `XB` 的任意组合），
+请求体不接受覆盖——避免"界面勾了 BMS、接口却写了全站"这类对不上的情况。
+若所选分组下没有可写设备，任务线程会在**连接数据库之前**失败，日志里是一条
+`ERROR 写入失败：RuntimeError: 写入对象下没有可写设备：请检查所选分组（PCS）…`。
 
 ## POST /api/stop
 

@@ -15,10 +15,13 @@ from datetime import datetime
 from typing import Callable, List, Optional, Tuple
 
 from .config import AppConfig, Connection
-from .engine import iter_devices, scale, writable_device_count
+from .engine import iter_devices, scale, write_targets
 from .rules import AnomalyInjector, Generator, RuleMatcher, PointValue
 
 LogFn = Callable[[str, str], None]
+
+# 日志里用的中文名（与界面上的分组名一致）
+GROUP_LABEL = {"BMS": "BMS", "PCS": "PCS", "XB": "箱变"}
 
 
 def _import_iotdb():
@@ -77,6 +80,8 @@ class Writer:
         self.stop_event = stop_event
         self.progress = progress
         self.matcher = RuleMatcher(cfg.rules)
+        # 写入对象：只生成并写入选中的设备大类（BMS / PCS / 箱变 的任意组合）
+        self.targets = write_targets(cfg)
         self.generator = Generator(cfg, self.matcher)
         self.anomaly = AnomalyInjector(False)
         self.session = None
@@ -198,11 +203,18 @@ class Writer:
 
     def run(self) -> dict:
         s = scale(self.cfg)
-        total_series = s["series"]
-        self._total_series = int(total_series)
+        # 只统计选中的写入对象：进度分母、总点数、日志口径必须与 iter_devices 产出一致
+        total_series = int(s.get("target_series", s["series"]))
+        self._total_series = total_series
         # 分母用"有测点的设备数"，与 iter_devices 实际产出台数一致，进度才能收敛到 100%
-        total_devices = int(s.get("writable_devices", s["devices"]))
+        total_devices = int(s.get("target_devices", s.get("writable_devices", s["devices"])))
         self.total_devices = total_devices
+        if total_devices <= 0:
+            raise RuntimeError(
+                "写入对象下没有可写设备：请检查所选分组（"
+                + " / ".join(GROUP_LABEL.get(g, g) for g in self.targets)
+                + "）是否配了测点、编码范围是否可解析"
+            )
         w = self.cfg.write
         # points_per_device 为 None（前端留空）= 持续写入，不限制总点数
         streaming = w.points_per_device is None
@@ -215,14 +227,26 @@ class Writer:
         self.log("INFO", f"连接配置「{db.name}」· {db.host}:{db.port} · 目标库 {db.database}")
         self.log("INFO", f"信号类型 {self.cfg.prefix.signal} → 全部测点 "
                          f"{'BOOLEAN（0/1）' if self.cfg.prefix.signal == 'yx' else 'FLOAT'}")
+        # 写入对象：写明本次写什么、排除了什么，避免"为什么数据少了"的困惑
+        picked = " + ".join(GROUP_LABEL.get(g, g) for g in self.targets)
+        skipped = [GROUP_LABEL.get(g, g) for g in ("BMS", "PCS", "XB") if g not in self.targets]
+        if skipped:
+            self.log("INFO", f"写入对象：{picked}（已排除 {' / '.join(skipped)}）"
+                             f" · 整站全量 {int(s['series']):,} 序列 / "
+                             f"{int(s.get('writable_devices', 0)):,} 台设备")
+        else:
+            self.log("INFO", f"写入对象：{picked}（全部）")
         if streaming:
-            self.log("INFO", f"整站规模：{total_series:,} 序列 / {total_devices:,} 待写设备 "
+            self.log("INFO", f"写入规模：{total_series:,} 序列 / {total_devices:,} 台设备 "
                              f"（每设备点数留空 → 持续写入，不限制总量）")
         else:
-            self.log("INFO", f"整站规模：{total_series:,} 序列 / {total_devices:,} 待写设备 / "
-                             f"预计 {self.total_points:,} 个数据点 "
-                             f"（BMS {s['groups'].get('BMS',0):,} + PCS {s['groups'].get('PCS',0):,} "
-                             f"+ 箱变 {s['groups'].get('XB',0):,}）")
+            per_group = s.get("target_groups") or {}
+            detail = " + ".join(
+                f"{GROUP_LABEL.get(g, g)} {int((per_group.get(g) or {}).get('series', 0)):,}"
+                for g in self.targets
+            )
+            self.log("INFO", f"写入规模：{total_series:,} 序列 / {total_devices:,} 台设备 / "
+                             f"预计 {self.total_points:,} 个数据点（{detail}）")
         self._connect(db)
 
         # 两条路径各自负责关闭 session（_run_once 沿用其原有 finally，_run_streaming 自带）
@@ -253,7 +277,7 @@ class Writer:
         batch_size = max(w.batch, 1)
 
         # 持续模式每轮都要遍历全部设备，惰性生成器只能消费一次，先落地成列表
-        devices = list(iter_devices(self.cfg))
+        devices = list(iter_devices(self.cfg, self.targets))
         total_devices = len(devices) or total_devices
         self.total_devices = total_devices
 
@@ -344,7 +368,7 @@ class Writer:
         build_cap = 50.0  # 生成阶段占用进度条前半程，写入阶段占后半程
 
         try:
-            for device, group, level, measures in iter_devices(self.cfg):
+            for device, group, level, measures in iter_devices(self.cfg, self.targets):
                 if self.stop_event.is_set():
                     self.log("WARN", "收到停止信号，中断写入")
                     break

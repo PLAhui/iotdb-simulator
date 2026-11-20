@@ -5,10 +5,23 @@
 """
 from __future__ import annotations
 
-from typing import Dict, Iterator, List, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
-from .config import AppConfig, Level
+from .config import TARGET_GROUPS, AppConfig, Level
 from .parser import expand_measure, measure_count, parse_range
+
+
+def write_targets(cfg: AppConfig) -> Tuple[str, ...]:
+    """本次要写入的设备大类，按 BMS / PCS / XB 的固定顺序返回。
+
+    空选择（配置被手工改成 []）按"全部"处理：宁可多写，也不要静默什么都不写。
+    """
+    picked = {str(g).upper() for g in (cfg.write.targets or TARGET_GROUPS)}
+    return tuple(g for g in TARGET_GROUPS if g in picked)
+
+
+def _group_set(targets: Optional[Iterable[str]]) -> set:
+    return {str(g).upper() for g in targets} if targets is not None else set(TARGET_GROUPS)
 
 
 def prefix_str(cfg: AppConfig) -> str:
@@ -42,20 +55,29 @@ def node_counts(cfg: AppConfig) -> Dict[str, int]:
     return counts
 
 
-def writable_device_count(cfg: AppConfig) -> int:
+def group_device_counts(cfg: AppConfig) -> Dict[str, int]:
+    """各设备大类下"挂了测点的设备数"（分组版 writable_device_count）。"""
+    counts = node_counts(cfg)
+    out: Dict[str, int] = {g: 0 for g in TARGET_GROUPS}
+    for gname, levels in cfg.groups.items():
+        for lv in levels:
+            if measure_count(lv.measures) > 0:
+                out[gname] = out.get(gname, 0) + counts.get(lv.key, 0)
+    return out
+
+
+def writable_device_count(cfg: AppConfig, targets: Optional[Iterable[str]] = None) -> int:
     """实际会被写入的设备数：只统计挂了测点的节点。
 
     与 iter_devices 的产出严格一致（某层 measures 为空则该层设备不产出）。
     scale()['devices'] 统计的是全部节点（含空层），做进度分母会偏大，
     导致进度百分比永远到不了 100%、"剩余设备数"也不准。
+
+    targets 为 None 时按配置里的写入对象过滤，与 iter_devices 默认行为一致。
     """
-    counts = node_counts(cfg)
-    total = 0
-    for levels in cfg.groups.values():
-        for lv in levels:
-            if measure_count(lv.measures) > 0:
-                total += counts.get(lv.key, 0)
-    return total
+    allow = _group_set(targets if targets is not None else write_targets(cfg))
+    per_group = group_device_counts(cfg)
+    return sum(n for g, n in per_group.items() if g in allow)
 
 
 def scale(cfg: AppConfig) -> Dict[str, object]:
@@ -69,13 +91,24 @@ def scale(cfg: AppConfig) -> Dict[str, object]:
             total += counts.get(node_key, 0) * measure_count(lv.measures)
         groups[gname] = total
     device_total = sum(counts.values())
+    targets = write_targets(cfg)
+    per_group_dev = group_device_counts(cfg)
     return {
         "counts": counts,
         "groups": groups,
         "devices": device_total,
-        "writable_devices": writable_device_count(cfg),
+        # 全站口径（不受写入对象影响），前端"整站全量"用；写入进度分母用 target_devices
+        "writable_devices": writable_device_count(cfg, TARGET_GROUPS),
         "series": sum(groups.values()),
         "points_per_cycle": sum(groups.values()),
+        # 本次写入范围：前端据此展示"只写 BMS"这类筛选后的数字
+        "targets": list(targets),
+        "target_groups": {
+            g: {"series": groups.get(g, 0), "devices": per_group_dev.get(g, 0)}
+            for g in TARGET_GROUPS
+        },
+        "target_series": sum(groups.get(g, 0) for g in targets),
+        "target_devices": sum(per_group_dev.get(g, 0) for g in targets),
     }
 
 
@@ -89,15 +122,20 @@ def _level_measures_raw(cfg: AppConfig, key: str) -> List[str]:
     return out
 
 
-def iter_devices(cfg: AppConfig) -> Iterator[Tuple[str, str, str, List[str]]]:
+def iter_devices(cfg: AppConfig,
+                 targets: Optional[Iterable[str]] = None) -> Iterator[Tuple[str, str, str, List[str]]]:
     """惰性展开所有设备。
+
+    Args:
+        targets: 只产出这些大类的设备（None = 按配置里的写入对象）
 
     Yields:
         (设备路径, 类别 BMS/PCS/XB, 层级 key, 该设备的具体测点名列表)
     """
+    allow = _group_set(targets if targets is not None else write_targets(cfg))
     pre = prefix_str(cfg)
     d, c, cu, p, m = (parsed(cfg, k) for k in ("d", "c", "cu", "p", "m"))
-    if all([d, c, cu, p, m]):
+    if "BMS" in allow and all([d, c, cu, p, m]):
         # 预计算各层测点（展开范围），避免在深层循环中重复解析
         dm, cm, cum, pm, mm = (_level_measures_raw(cfg, k) for k in ("d", "c", "cu", "p", "m"))
         for dv in d:
@@ -124,7 +162,7 @@ def iter_devices(cfg: AppConfig) -> Iterator[Tuple[str, str, str, List[str]]]:
     pcs_measures = _level_measures_raw(cfg, "pcs")
     pcsd = parsed(cfg, "pcsd") if cfg.pcs_sub else []
     pcsd_measures = _level_measures_raw(cfg, "pcsd") if cfg.pcs_sub else []
-    for pv in pcs:
+    for pv in pcs if "PCS" in allow else []:
         if pcs_measures:
             yield f"{pre}.{pv}", "PCS", "pcs", pcs_measures
         for dv in pcsd:
@@ -133,6 +171,6 @@ def iter_devices(cfg: AppConfig) -> Iterator[Tuple[str, str, str, List[str]]]:
 
     xb = parsed(cfg, "xb")
     xb_measures = _level_measures_raw(cfg, "xb")
-    for xv in xb:
+    for xv in xb if "XB" in allow else []:
         if xb_measures:
             yield f"{pre}.{xv}", "XB", "xb", xb_measures

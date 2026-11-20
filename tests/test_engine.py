@@ -96,5 +96,50 @@ class TestIterDevices(unittest.TestCase):
         self.assertEqual(sub[0][0], "root.cm.z01.yc.pcs0101.d01")
 
 
+class TestWriteTargets(unittest.TestCase):
+    """写入对象（只写 BMS / PCS / 箱变或任意组合）的过滤语义。"""
+
+    def cfg_with(self, targets):
+        cfg = make_cfg()
+        cfg.write.targets = list(targets)
+        return cfg
+
+    def test_filter_keeps_only_selected_groups(self):
+        cfg = self.cfg_with(["PCS"])
+        devices = list(iter_devices(cfg))
+        self.assertEqual(len(devices), 2)
+        self.assertTrue(all(d[1] == "PCS" for d in devices))
+
+    def test_bms_plus_xb_skips_pcs(self):
+        cfg = self.cfg_with(["BMS", "XB"])
+        groups = {d[1] for d in iter_devices(cfg)}
+        self.assertEqual(groups, {"BMS", "XB"})
+
+    def test_progress_denominator_matches_produced_devices(self):
+        # 进度分母（target_devices）必须等于实际产出，否则百分比收敛不到 100%
+        for targets in (["BMS"], ["PCS"], ["XB"], ["PCS", "XB"], ["BMS", "PCS", "XB"]):
+            cfg = self.cfg_with(targets)
+            produced = len(list(iter_devices(cfg)))
+            self.assertEqual(scale(cfg)["target_devices"], produced, targets)
+            self.assertEqual(writable_device_count(cfg), produced, targets)
+
+    def test_series_scale_follows_targets(self):
+        full = scale(make_cfg())
+        only_pcs = scale(self.cfg_with(["PCS"]))
+        self.assertEqual(only_pcs["target_series"], 2)
+        self.assertEqual(only_pcs["target_devices"], 2)
+        # 整站全量不受写入对象影响
+        self.assertEqual(only_pcs["series"], full["series"])
+        self.assertEqual(only_pcs["writable_devices"], full["writable_devices"])
+
+    def test_empty_selection_falls_back_to_all(self):
+        cfg = config_from_dict({"write": {"targets": []}})
+        self.assertEqual(cfg.write.targets, ["BMS", "PCS", "XB"])
+
+    def test_targets_are_normalized_and_ordered(self):
+        cfg = config_from_dict({"write": {"targets": ["xb", " BMS ", "XYZ", "bms"]}})
+        self.assertEqual(cfg.write.targets, ["BMS", "XB"])
+
+
 if __name__ == "__main__":
     unittest.main()
