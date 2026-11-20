@@ -1,0 +1,113 @@
+# IoTDB 数据模拟器 · 配置示例
+# 复制为项目根目录的 config.yaml 后即可使用：cp examples/config.example.yaml config.yaml
+# 也可在网页里改完点保存，程序会自动写回 config.yaml。
+
+connections:
+  - id: cfg1
+    name: 本地
+    host: 127.0.0.1
+    port: 6667
+    user: root
+    password: root
+    database: root.cm
+  - id: cfg2
+    name: 示例远端
+    host: 192.168.1.10
+    port: 6667
+    user: root
+    password: root
+    database: root.cm
+
+active_connection: cfg1
+
+# 路径前缀：root 固定，其余三段与信号类型共同拼接
+#   root.{station}.{zone}.{signal}
+prefix:
+  station: cm        # 场站编码
+  zone: z01          # 站区号
+  signal: yc         # yc = 遥测（全部 FLOAT）| yx = 遥信（全部 BOOLEAN）
+  order: reverse     # reverse = 舱.堆（c.d）| forward = 堆.舱（d.c）
+
+groups:
+  BMS:
+    - key: d           # 层级键，不可改：d / c / cu / p / m
+      name: 堆
+      range: d0001-d0002
+      measures: []     # 空数组 = 该层设备不写入（不计入待写设备数）
+    - key: c
+      name: 舱
+      range: c101-c102
+      measures:
+        - soh
+        - singemaxvol
+        - singeminvol
+        - singemaxtem
+        - singemintem
+        - avetem
+        - rsv01-rsv07          # 区间写法：展开为 rsv01…rsv07 共 7 个测点
+    - key: cu
+      name: 簇
+      range: c001-c074
+      measures:
+        - totv
+        - toti
+        - totp
+        - soc
+        - soh
+        - relaysta
+        - relaytem01-relaytem04
+        - rsv01-rsv06
+    - key: p
+      name: 包
+      range: p01-p04
+      measures: []
+    - key: m
+      name: 模组
+      range: m01-m04
+      measures:
+        - v001-v026            # 26 个单体电压
+        - t001-t012            # 12 个温度点
+        - act01
+        - pt01
+        - pt02
+
+  PCS:
+    - key: pcs
+      name: PCS
+      range: pcs0101-pcs0104
+      measures: [totv, toti, totp, totq, soc, soh, workmode, worksta, rsv01-rsv04]
+    - key: pcsd
+      name: 子设备 d
+      range: d01-d02
+      measures: [totv, toti, totp, totq, soc, workmode, rsv01-rsv04]
+
+  XB:
+    - key: xb
+      name: 箱变
+      range: 35packtran101-35packtran102
+      measures: [hvvol, lvvol, hvcur, lvcur, totp, totq, oiltemp, windingtemp, worksta, rsv01-rsv04]
+
+# PCS 是否启用子设备层：false 时 pcsd 层不产出设备
+pcs_sub: false
+
+# 测点 → 值域 / 单位 / 变化模型
+#   model: walk 随机游走 | sine 正弦 | mono 单调累加 | state 三档 | const 常量 | flip 翻转
+#   match: 逗号分隔，支持精确名、区间、通配（v* / *vol / t* / *tem）
+rules:
+  - {cat: 电压,     min: 3.0,   max: 4.2,      unit: V,  model: walk,  match: "v*, *vol",           period: 86400}
+  - {cat: 温度,     min: 15.0,  max: 45.0,     unit: ℃,  model: sine,  match: "t*, *tem",           period: 86400}
+  - {cat: 荷电状态, min: 0.0,   max: 100.0,    unit: '', model: walk,  match: "soc, soe, soh",      period: 86400}
+  - {cat: 功率电流, min: -500.0, max: 500.0,   unit: '', model: sine,  match: "totp, toti, totq",   period: 86400}
+  - {cat: 电量,     min: 0.0,   max: 1000000.0, unit: '', model: mono,  match: "*ce, *de",           period: 86400}
+  - {cat: 状态位,   min: 0.0,   max: 2.0,      unit: '', model: state, match: "workmode, relaysta", period: 86400}
+  - {cat: 预留,     min: 0.0,   max: 0.0,      unit: '', model: const, match: "rsv01-rsv07",        period: 86400}
+
+write:
+  interval_ms: 1000        # 相邻点时间间隔（毫秒）
+  mode: realtime           # realtime 末点对齐当前时间 | history 从 history_start 往后铺
+  batch: 100               # 每批提交的设备数
+  points_per_device: 10    # 每设备时间点数；留空 / null = 持续写入直到手动停止
+  history_start: ''        # history 模式的起始时刻，格式 '2026-11-19 18:00:00'
+  rate_limit: 0            # 每秒最多写入点数，0 = 不限速
+  threads: 4               # 预留：当前写入为串行提交
+  dry_run: false           # true = 不连真库，走完整流程用于自检

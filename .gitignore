@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 运行时配置：含连接地址与口令，不入库
+config.yaml
+config.yaml.tmp
+
+# 日志与临时产物
+*.log
+*.tmp
+shots/
+out/
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
