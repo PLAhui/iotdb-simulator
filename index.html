@@ -334,6 +334,39 @@
   .domain em{font-style:normal;font-size:10.5px;color:var(--ink3);min-width:15px;font-family:var(--mono)}
   .roDomain{font-family:var(--mono);color:var(--ink2);font-size:11.5px}
 
+  /* ===== 变化模型图例 ===== */
+  .model-legend{margin-top:11px;padding-top:10px;border-top:1px dashed var(--line2)}
+  .ml-cap{display:flex;align-items:center;gap:8px;margin-bottom:7px;
+    font-size:11.5px;color:var(--ink3);letter-spacing:.03em}
+  .ml-cap::before{content:"";width:3px;height:11px;border-radius:2px;flex:none;
+    background:linear-gradient(180deg,#5b8df8,#4f46e5)}
+  .ml-cap em{font-style:normal;margin-left:auto;font-family:var(--mono);
+    font-size:10.5px;color:#aab6c9;letter-spacing:0}
+  .ml-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+  .ml-item{display:grid;grid-template-columns:36px minmax(0,1fr);align-items:start;
+    gap:8px;padding:5px 9px;border:1px solid var(--line);border-radius:9px;
+    background:linear-gradient(180deg,#fdfeff,#f8fbff);transition:border-color .16s var(--ease)}
+  .ml-item:hover{border-color:#d7e3f8;background:linear-gradient(180deg,#fff,#f4f9ff)}
+  .ml-spark{width:36px;height:22px;border-radius:5px;display:grid;place-items:center;
+    background:#f1f6ff;color:#4b82f2}
+  .ml-spark svg{display:block}
+  .ml-body{min-width:0}
+  .ml-hd{display:flex;align-items:baseline;gap:6px}
+  .ml-hd code{font-family:var(--mono);font-size:10.5px;line-height:1.55;color:#3766e8;
+    background:#eef4ff;border-radius:4px;padding:0 4px;flex:none}
+  .ml-hd b{font-size:12.2px;font-weight:600;color:var(--ink);letter-spacing:-.005em;
+    white-space:nowrap}
+  .ml-desc{display:block;margin-top:1px;font-size:11px;line-height:1.5;color:var(--ink2);
+    text-wrap:pretty}
+
+  /* 造数规则页：表格行距收紧，给下方模型图例腾出一屏空间 */
+  #rule th{padding:7px 12px}
+  #rule td{padding:5px 12px}
+  #rule .card{padding:11px 17px}
+  #rule .ruleNum,#rule .ruleSel{height:28px}
+  #rule .card-hd{margin-bottom:11px}
+  #rule .notice{padding:7px 12px;margin:0 0 11px;line-height:1.55}
+
   .pathbar{display:flex;flex-wrap:wrap;gap:5px;align-items:center;
     background:linear-gradient(180deg,#fbfcfe,#f7f9fd);border:1px solid var(--line);
     border-radius:9px;padding:0 10px;height:36px;overflow:hidden}
@@ -567,9 +600,13 @@
     #rule table th,#rule table td{padding:4px 12px}
     .notice{padding:8px 13px;margin-top:10px}
     #rule .notice{margin:0 0 10px}
-    .model-legend{padding-top:10px;margin-top:11px}
-    .ml-cap{margin-bottom:7px}
-    .ml-grid{gap:3px 24px}
+    .model-legend{padding-top:9px;margin-top:9px}
+    .ml-cap{margin-bottom:6px}
+    .ml-grid{gap:6px}
+    .ml-item{padding:5px 8px;grid-template-columns:32px minmax(0,1fr);gap:7px}
+    .ml-spark{width:32px;height:20px}
+    .ml-spark svg{width:30px;height:16px}
+    .ml-desc{font-size:10.6px;line-height:1.45}
     .stat{padding:10px 13px 11px}
     .stat .n{font-size:21px}
     .grid2{gap:11px 20px}
@@ -603,6 +640,7 @@
     .hero-meta{width:100%}
     .hm{flex:1;justify-content:center;padding:0 10px}
     .lv-card{--lvcols:158px minmax(0,1fr) 74px 168px 24px}
+    .ml-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   }
   @media (max-width:900px){
     .tb-inner,.app{padding-left:18px;padding-right:18px}
@@ -637,6 +675,8 @@
     .hero-meta{width:100%;height:auto;flex-wrap:wrap;border-radius:9px}
     .hm{flex:1 1 auto;padding:5px 11px;border-right:none}
     .grid2,.grid3{grid-template-columns:1fr}
+    .ml-grid{grid-template-columns:minmax(0,1fr)}
+    .ml-desc{font-size:11px}
     .brand-sub{display:none}
     .conn-pill .meta{display:none}
     .tabs{flex-wrap:wrap}
@@ -964,14 +1004,63 @@
         <tbody id="ruleRows"></tbody>
       </table>
       <div class="model-legend">
-        <div class="ml-cap">变化模型说明</div>
+        <div class="ml-cap"><span>变化模型说明</span><em>6 种</em></div>
         <div class="ml-grid">
-          <div class="ml-item"><code>walk</code><b>随机游走</b><span>在上一点基础上小幅随机漂移，碰到上下限回弹，最接近真实测点</span></div>
-          <div class="ml-item"><code>sine</code><b>正弦波动</b><span>按周期在值域内平滑起伏，适合温度、功率这类有节律的量</span></div>
-          <div class="ml-item"><code>mono</code><b>单调递增</b><span>只增不减，到上限后回落到底部重新累计，适合电量类累计量</span></div>
-          <div class="ml-item"><code>state</code><b>状态机</b><span>在取整值之间随机跳变并保持若干点，适合工况、继电器等离散状态</span></div>
-          <div class="ml-item"><code>const</code><b>常量</b><span>始终取区间下限，用于预留位、占位测点</span></div>
-          <div class="ml-item"><code>flip</code><b>状态翻转</b><span>0 / 1 交替翻转，每个点都变，适合需要高频跳变的遥信</span></div>
+          <div class="ml-item">
+            <span class="ml-spark" aria-hidden="true"><svg width="34" height="18" viewBox="0 0 34 18" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1.5 12L6 7.5 10.5 10.5 15 4.5 19.5 8.5 24 6 28 10.5 32.5 4"/></svg></span>
+            <span class="ml-body">
+              <span class="ml-hd"><code>walk</code><b>随机游走</b></span>
+              <span class="ml-desc">在上一点基础上小幅随机漂移，碰到上下限回弹，最接近真实测点</span>
+            </span>
+          </div>
+          <div class="ml-item">
+            <span class="ml-spark" aria-hidden="true"><svg width="34" height="18" viewBox="0 0 34 18" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1.5 9C3.4 2.9 5.6 2.9 7.5 9s4.1 6.1 6 0 4.1-6.1 6 0 4.1 6.1 6 0 4.1-6.1 6 0"/></svg></span>
+            <span class="ml-body">
+              <span class="ml-hd"><code>sine</code><b>正弦波动</b></span>
+              <span class="ml-desc">按周期在值域内平滑起伏，适合温度、功率这类有节律的量</span>
+            </span>
+          </div>
+          <div class="ml-item">
+            <span class="ml-spark" aria-hidden="true"><svg width="34" height="18" viewBox="0 0 34 18" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1.5 15L14.5 3.5V15L27.5 3.5V11.5"/></svg></span>
+            <span class="ml-body">
+              <span class="ml-hd"><code>mono</code><b>单调递增</b></span>
+              <span class="ml-desc">只增不减，到上限后回落到底部重新累计，适合电量类累计量</span>
+            </span>
+          </div>
+          <div class="ml-item">
+            <span class="ml-spark" aria-hidden="true"><svg width="34" height="18" viewBox="0 0 34 18" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1.5 13H8V6.5h6.5V12H21V5h6.5v5.5h4"/></svg></span>
+            <span class="ml-body">
+              <span class="ml-hd"><code>state</code><b>状态机</b></span>
+              <span class="ml-desc">在取整值之间随机跳变并保持若干点，适合工况、继电器等离散状态</span>
+            </span>
+          </div>
+          <div class="ml-item">
+            <span class="ml-spark" aria-hidden="true"><svg width="34" height="18" viewBox="0 0 34 18" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1.5 3.5h31" stroke-dasharray="2 3" opacity=".38"/>
+              <path d="M1.5 14.5h31"/></svg></span>
+            <span class="ml-body">
+              <span class="ml-hd"><code>const</code><b>常量</b></span>
+              <span class="ml-desc">始终取区间下限，用于预留位、占位测点</span>
+            </span>
+          </div>
+          <div class="ml-item">
+            <span class="ml-spark" aria-hidden="true"><svg width="34" height="18" viewBox="0 0 34 18" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M1.5 14.5V5H8v9.5h6.5V5H21v9.5h6.5V5h4"/></svg></span>
+            <span class="ml-body">
+              <span class="ml-hd"><code>flip</code><b>状态翻转</b></span>
+              <span class="ml-desc">0 / 1 交替翻转，每个点都变，适合需要高频跳变的遥信</span>
+            </span>
+          </div>
         </div>
       </div>
     </div>
