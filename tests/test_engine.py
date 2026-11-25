@@ -10,12 +10,11 @@ from server.config import config_from_dict
 from server.engine import iter_devices, node_counts, scale, writable_device_count
 
 
-def make_cfg(pcs_sub: bool = False, order: str = "forward", xb_sub: bool = False):
-    """构造一棵小树：2 堆 × 2 舱 × 3 簇 × 2 包 × 2 模组。"""
-    return config_from_dict({
+def make_cfg(pcs_sub: bool = False, order: str = "forward", xb_subs=None):
+    """构造一棵小树：2 堆 × 2 舱 × 3 簇 × 2 包 × 2 模组，箱变带两个子设备层。"""
+    data = {
         "prefix": {"station": "cm", "zone": "z01", "signal": "yc", "order": order},
         "pcs_sub": pcs_sub,
-        "xb_sub": xb_sub,
         "groups": {
             "BMS": [
                 {"key": "d", "name": "堆", "range": "d0001-d0002", "measures": []},
@@ -34,12 +33,17 @@ def make_cfg(pcs_sub: bool = False, order: str = "forward", xb_sub: bool = False
             "XB": [
                 {"key": "xb", "name": "箱变", "range": "35packtran101",
                  "measures": ["hvvol"]},
-                {"key": "xbd", "name": "子设备 d", "range": "d01-d02",
-                 "measures": ["hvvol"]},
+                {"key": "byr", "name": "变压器室", "range": "byr01-byr02",
+                 "measures": ["tem"]},
+                {"key": "lvr", "name": "低压室", "range": "lvr01",
+                 "measures": ["lvvol"]},
             ],
         },
         "rules": [],
-    })
+    }
+    if xb_subs is not None:
+        data["xb_subs"] = xb_subs
+    return config_from_dict(data)
 
 
 class TestNodeCounts(unittest.TestCase):
@@ -57,15 +61,61 @@ class TestNodeCounts(unittest.TestCase):
         self.assertEqual(node_counts(make_cfg(pcs_sub=True))["pcsd"], 4)
 
     def test_xb_sub_toggle(self):
-        # 箱变子设备层默认关闭，开启后节点数 = 箱变数 × 子设备数
-        self.assertEqual(node_counts(make_cfg())["xbd"], 0)
-        self.assertEqual(node_counts(make_cfg(xb_sub=True))["xbd"], 2)
+        # 箱变子设备层默认全关，逐个开启后节点数 = 箱变数 × 该层设备数
+        counts = node_counts(make_cfg())
+        self.assertEqual((counts["byr"], counts["lvr"]), (0, 0))
+        counts = node_counts(make_cfg(xb_subs=["byr"]))
+        self.assertEqual((counts["byr"], counts["lvr"]), (2, 0))
+        counts = node_counts(make_cfg(xb_subs=["byr", "lvr"]))
+        self.assertEqual((counts["byr"], counts["lvr"]), (2, 1))
+
+    def test_xb_sub_switches_are_independent(self):
+        # 两个子层各开各的：只开 lvr 不影响 byr
+        counts = node_counts(make_cfg(xb_subs=["lvr"]))
+        self.assertEqual((counts["xb"], counts["byr"], counts["lvr"]), (1, 0, 1))
 
     def test_sub_switches_are_independent(self):
-        counts = node_counts(make_cfg(pcs_sub=True, xb_sub=False))
-        self.assertEqual((counts["pcsd"], counts["xbd"]), (4, 0))
-        counts = node_counts(make_cfg(pcs_sub=False, xb_sub=True))
-        self.assertEqual((counts["pcsd"], counts["xbd"]), (0, 2))
+        counts = node_counts(make_cfg(pcs_sub=True, xb_subs=[]))
+        self.assertEqual((counts["pcsd"], counts["byr"], counts["lvr"]), (4, 0, 0))
+        counts = node_counts(make_cfg(pcs_sub=False, xb_subs=["byr", "lvr"]))
+        self.assertEqual((counts["pcsd"], counts["byr"], counts["lvr"]), (0, 2, 1))
+
+    def test_legacy_xb_sub_bool_enables_every_layer(self):
+        # 旧写法 xb_sub: true 等价于"启用配置里定义的所有箱变子层"
+        cfg = config_from_dict({
+            "xb_sub": True,
+            "groups": {"XB": [
+                {"key": "xb", "name": "箱变", "range": "35packtran101", "measures": ["hvvol"]},
+                {"key": "byr", "name": "变压器室", "range": "byr01", "measures": ["tem"]},
+                {"key": "lvr", "name": "低压室", "range": "lvr01", "measures": ["lvvol"]},
+            ]},
+        })
+        self.assertEqual(cfg.xb_subs, ["byr", "lvr"])
+        self.assertEqual(node_counts(cfg)["byr"], 1)
+
+    def test_unknown_sub_layer_is_dropped(self):
+        # 配置里没定义的层 key 不应被接受，否则会拼出没有定义的路径
+        cfg = config_from_dict({"xb_subs": ["byr", "hvr", "xb", " byr "]})
+        self.assertEqual(cfg.xb_subs, ["byr"])
+
+    def test_xb_subs_accepts_comma_string(self):
+        # 手写 YAML 写成 xb_subs: byr, lvr 也要认
+        cfg = config_from_dict({"xb_subs": "byr，lvr"})
+        self.assertEqual(cfg.xb_subs, ["byr", "lvr"])
+
+    def test_legacy_xbd_layer_is_migrated(self):
+        # 上一版未发布的通用子层 xbd 被具名层取代，旧配置加载后不应残留
+        cfg = config_from_dict({
+            "xb_sub": True,
+            "groups": {"XB": [
+                {"key": "xb", "name": "箱变", "range": "35packtran101", "measures": ["hvvol"]},
+                {"key": "xbd", "name": "子设备 d", "range": "d01-d02", "measures": ["hvvol"]},
+            ]},
+        })
+        keys = [lv.key for lv in cfg.groups["XB"]]
+        self.assertNotIn("xbd", keys)
+        self.assertEqual(keys[:3], ["xb", "byr", "lvr"])
+        self.assertEqual(cfg.xb_subs, ["byr", "lvr"])
 
 
 class TestScale(unittest.TestCase):
@@ -110,19 +160,30 @@ class TestIterDevices(unittest.TestCase):
         self.assertEqual(sub[0][0], "root.cm.z01.yc.pcs0101.d01")
 
     def test_xb_sub_adds_child_devices(self):
-        devices = list(iter_devices(make_cfg(xb_sub=True)))
-        sub = [d for d in devices if d[2] == "xbd"]
+        devices = list(iter_devices(make_cfg(xb_subs=["byr"])))
+        sub = [d for d in devices if d[2] == "byr"]
         self.assertEqual(len(sub), 2)
-        self.assertEqual(sub[0][0], "root.cm.z01.yc.35packtran101.d01")
+        self.assertEqual(sub[0][0], "root.cm.z01.yc.35packtran101.byr01")
         self.assertEqual(sub[0][1], "XB")
 
+    def test_multiple_xb_sub_layers_are_siblings(self):
+        # byr 与 lvr 都挂在箱变下，是兄弟节点而不是父子，路径深度一致
+        devices = list(iter_devices(make_cfg(xb_subs=["byr", "lvr"])))
+        byr = [d for d in devices if d[2] == "byr"]
+        lvr = [d for d in devices if d[2] == "lvr"]
+        self.assertEqual([d[0] for d in byr],
+                         ["root.cm.z01.yc.35packtran101.byr01",
+                          "root.cm.z01.yc.35packtran101.byr02"])
+        self.assertEqual([d[0] for d in lvr], ["root.cm.z01.yc.35packtran101.lvr01"])
+
     def test_xb_sub_progress_denominator_matches_produced(self):
-        cfg = make_cfg(xb_sub=True)
-        produced = len(list(iter_devices(cfg)))
-        self.assertEqual(scale(cfg)["target_devices"], produced)
-        self.assertEqual(writable_device_count(cfg), produced)
-        # 关闭后子设备不再产出，分母同步回落
-        off = make_cfg(xb_sub=False)
+        for subs in (["byr"], ["lvr"], ["byr", "lvr"]):
+            cfg = make_cfg(xb_subs=subs)
+            produced = len(list(iter_devices(cfg)))
+            self.assertEqual(scale(cfg)["target_devices"], produced, subs)
+            self.assertEqual(writable_device_count(cfg), produced, subs)
+        # 全关后子设备不再产出，分母回到只有箱变本体
+        off = make_cfg(xb_subs=[])
         self.assertEqual(scale(off)["target_devices"], len(list(iter_devices(off))))
 
 

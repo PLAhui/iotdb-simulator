@@ -15,11 +15,11 @@
 | `prefix` | object | 路径前缀与拼接规则 |
 | `groups` | map | `BMS` / `PCS` / `XB` 三组层级定义 |
 | `pcs_sub` | bool | 是否启用 PCS 子设备层，默认 `false` |
-| `xb_sub` | bool | 是否启用箱变子设备层，默认 `false` |
+| `xb_subs` | list | 启用的箱变子设备层 `key` 列表，如 `[byr, lvr]`；默认 `[]`（只写箱变本体）。旧字段 `xb_sub: true` 等价于「启用配置里定义的全部子层」 |
 | `rules` | list | 测点 → 值域 / 单位 / 变化模型 |
 | `write` | object | 写入参数 |
 
-前端提交的 JSON 允许用驼峰 `activeConnection` / `pcsSub` / `xbSub`，后端会归一为下划线形式。
+前端提交的 JSON 允许用驼峰 `activeConnection` / `pcsSub` / `xbSubs`，后端会归一为下划线形式。
 
 ## 2. connections
 
@@ -77,7 +77,7 @@ groups:
 
 | 字段 | 说明 |
 |---|---|
-| `key` | 层级键，**不可随意改**：BMS 用 `d/c/cu/p/m`，PCS 用 `pcs/pcsd`，箱变用 `xb/xbd`。`engine.py` 按这些键取值 |
+| `key` | 层级键，**不可随意改**：BMS 用 `d/c/cu/p/m`，PCS 用 `pcs/pcsd`，箱变用 `xb` + 任意个子层（默认 `byr/lvr`）。`engine.py` 按这些键取值 |
 | `name` | 展示名（堆 / 舱 / 簇 / 包 / 模组） |
 | `range` | 该层编码范围，决定这一层有多少节点；空或非法 → 该层 0 个节点 |
 | `measures` | 挂在该层的测点，支持单点与区间；**空数组表示该层不写入** |
@@ -95,11 +95,16 @@ PCS 与箱变是独立分支，不参与上面的相乘：
 root.cm.z01.yc.pcs0101          # PCS
 root.cm.z01.yc.pcs0101.d01      # PCS 子设备（pcs_sub: true）
 root.cm.z01.yc.35packtran101    # 箱变
-root.cm.z01.yc.35packtran101.d01  # 箱变子设备（xb_sub: true）
+root.cm.z01.yc.35packtran101.byr01  # 箱变 · 变压器室（xb_subs: [byr]）
+root.cm.z01.yc.35packtran101.lvr01  # 箱变 · 低压室（xb_subs: [byr, lvr]）
 ```
 
-两个子设备层互相独立：`pcs_sub` / `xb_sub` 各自开关，节点数分别为 `pcs × pcsd`、`xb × xbd`，
-开关关闭时该层的 `counts` 为 0、生成器不进入该层，序列数与设备数与开启前完全一致。
+箱变子设备层不限于一层：`groups.XB` 里 `xb` 之后的每一层都是一个可选子设备层，
+默认定义 `byr`（变压器室）、`lvr`（低压室），可以按现场继续增删。各子层是**兄弟节点**，
+都直接挂在箱变下，节点数各自为 `xb × 该层范围`，互不相乘。
+
+PCS 与箱变的开关互相独立：`pcs_sub` 管 `pcsd`，`xb_subs` 管箱变的所有子层；
+未启用的层 `counts` 为 0、生成器不进入该层，序列数与设备数与开启前完全一致。
 
 ## 5. 编码范围语法
 
@@ -220,4 +225,8 @@ rules:
 `targets: []` 在解析时按"全部"兜底，避免配置写错变成静默不写；若所选分组确实没有可写设备（没配测点、范围为空），`run()` 直接报错并说明是哪个分组，不会连库。
 
 **箱变也要挂子设备**
-把 `xb_sub` 置为 `true`，并在 `groups.XB` 里保留 `key: xbd` 这一层（默认定义自带，`range: d01-d02`）。开启后额外产出 `35packtran101.d01` 这类设备，节点数 = 箱变数 × 子设备数；`pcs_sub` 与 `xb_sub` 互不影响。旧配置里没有 `xbd` 层时会自动补齐，不必手工改 YAML。
+把要启用的层写进 `xb_subs`（如 `[byr, lvr]`），界面「路径与结构 → 箱变」里也可以逐层勾选。
+默认定义自带 `byr`（变压器室，`byr01`）与 `lvr`（低压室，`lvr01`）两层，开启后额外产出
+`35packtran101.byr01.tem`、`35packtran101.lvr01.lvvol` 这类设备，节点数各自 = 箱变数 × 该层设备数。
+旧配置里没有这两层时会自动补齐，不必手工改 YAML；想加第三层（如 `hvr` 高压室），在
+`groups.XB` 里按同样格式追加一条即可，代码与界面都按层数自适应。

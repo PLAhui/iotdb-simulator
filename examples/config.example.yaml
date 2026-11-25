@@ -86,16 +86,22 @@ groups:
       name: 箱变
       range: 35packtran101-35packtran102
       measures: [hvvol, lvvol, hvcur, lvcur, totp, totq, oiltemp, windingtemp, worksta, rsv01-rsv04]
-    - key: xbd
-      name: 子设备 d
-      range: d01-d02
-      measures: [hvvol, lvvol, hvcur, lvcur, totp, totq, oiltemp, worksta, rsv01-rsv02]
+    # 箱变内部的每个间隔都是一层子设备：xb 之后可以有任意多层
+    - key: byr
+      name: 变压器室
+      range: byr01
+      measures: [tem, hum, fansta, smoke, doorsta, rsv01-rsv02]
+    - key: lvr
+      name: 低压室
+      range: lvr01
+      measures: [lvvol, lvcur, totp, totq, worksta, rsv01-rsv02]
 
 # PCS 是否启用子设备层：false 时 pcsd 层不产出设备
 pcs_sub: false
 
-# 箱变是否启用子设备层：false 时 xbd 层不产出设备（路径形如 35packtran101.d01）
-xb_sub: false
+# 箱变启用哪些子设备层：列出即启用，可只开一层或全开
+# 例：[byr, lvr] → 35packtran101.byr01 / 35packtran101.lvr01
+xb_subs: []
 
 # 测点 → 值域 / 单位 / 变化模型
 #   model: walk 随机游走 | sine 正弦 | mono 单调累加 | state 三档 | const 常量 | flip 翻转

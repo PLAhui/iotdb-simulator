@@ -76,7 +76,9 @@ class AppConfig:
     prefix: Prefix = field(default_factory=Prefix)
     groups: Dict[str, List[Level]] = field(default_factory=dict)
     pcs_sub: bool = False
-    xb_sub: bool = False
+    # 箱变子设备层：可多个（byr 变压器室 / lvr 低压室 / …），值是启用的层 key。
+    # 空列表 = 只写箱变本体的直接测点。层本身定义在 groups["XB"] 里（第一层之外都算子层）。
+    xb_subs: List[str] = field(default_factory=list)
     rules: List[Rule] = field(default_factory=list)
     write: WriteConfig = field(default_factory=WriteConfig)
 
@@ -134,13 +136,15 @@ def default_config() -> AppConfig:
                 Level("xb", "箱变", "35packtran101-35packtran102,35packtran201-35packtran202",
                       ["hvvol", "lvvol", "hvcur", "lvcur", "totp", "totq",
                        "oiltemp", "windingtemp", "worksta", "rsv01-rsv04"]),
-                Level("xbd", "子设备 d", "d01-d02",
-                      ["hvvol", "lvvol", "hvcur", "lvcur", "totp", "totq",
-                       "oiltemp", "worksta", "rsv01-rsv02"]),
+                # 箱变内部按间隔拆成多个子设备，顺序即界面展示顺序
+                Level("byr", "变压器室", "byr01",
+                      ["tem", "hum", "fansta", "smoke", "doorsta", "rsv01-rsv02"]),
+                Level("lvr", "低压室", "lvr01",
+                      ["lvvol", "lvcur", "totp", "totq", "worksta", "rsv01-rsv02"]),
             ],
         },
         pcs_sub=False,
-        xb_sub=False,
+        xb_subs=[],
         rules=[
             Rule("电压", 3.0, 4.2, "V", "walk", "v*, *vol"),
             Rule("温度", 15, 45, "℃", "sine", "t*, *tem"),
@@ -159,7 +163,8 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
     base = default_config().to_dict()
     merged = copy.deepcopy(base)
     for key in ("connections", "activeConnection", "active_connection", "prefix",
-                "groups", "pcsSub", "pcs_sub", "xbSub", "xb_sub", "rules", "write"):
+                "groups", "pcsSub", "pcs_sub", "xbSubs", "xb_subs",
+                "xbSub", "xb_sub", "rules", "write"):
         if key in data:
             merged[key] = data[key]
     if "activeConnection" in merged and "active_connection" not in data:
@@ -200,15 +205,36 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
                 key=lv.get("key", ""), name=lv.get("name", ""),
                 range=lv.get("range", ""), measures=_norm_measures(lv.get("measures", [])),
             ))
-    # 兼容旧配置：新版本给某个大类新增的层级（如箱变子设备 xbd）在旧 YAML 里不存在，
+    # 兼容旧配置：新版本给某个大类新增的层级（如箱变子设备 byr / lvr）在旧 YAML 里不存在，
     # 按 key 补齐默认定义，否则界面上看不到这一层、引擎也不会展开它。
     defaults = default_config().groups
+    default_subs = [lv.key for lv in defaults.get("XB", [])[1:]]
+    # 上一版（未发布）箱变只有一个通用子层 xbd，现改为具名层（byr / lvr …）。
+    # 配置里只有 xbd、没有任何新层时整体迁移掉，避免同一台箱变下重复产出两套设备。
+    xb_have = groups.setdefault("XB", [])
+    if any(lv.key == "xbd" for lv in xb_have) and not any(lv.key in default_subs for lv in xb_have):
+        groups["XB"] = [lv for lv in xb_have if lv.key != "xbd"]
     for gname, dlevels in defaults.items():
         have = groups.setdefault(gname, [])
         keys = {lv.key for lv in have}
         for dlv in dlevels:
             if dlv.key not in keys:
                 have.append(Level(dlv.key, dlv.name, dlv.range, list(dlv.measures)))
+    # 箱变子设备层：新写法 xb_subs 是 key 列表（支持任意多层），旧写法 xb_sub: true
+    # 表示"启用这份配置里定义的所有子层"。按 XB 组定义顺序过滤，未知 key 直接丢弃，
+    # 免得拼出 35packtran101.hvr01 这种没有定义的路径。
+    sub_levels = groups.get("XB", [])[1:]
+    known = {lv.key for lv in sub_levels}
+    raw_subs = data.get("xb_subs", data.get("xbSubs"))
+    if raw_subs is None:
+        legacy_on = bool(data.get("xb_sub", data.get("xbSub")))
+        wanted = known if legacy_on else set()
+    elif isinstance(raw_subs, str):
+        # 手写 YAML 可能写成 xb_subs: byr, lvr，按逗号拆开
+        wanted = {s.strip() for s in raw_subs.replace("，", ",").split(",") if s.strip()}
+    else:
+        wanted = {str(k).strip() for k in raw_subs if str(k).strip()}
+    xb_subs = [lv.key for lv in sub_levels if lv.key in wanted]
     rules = []
     for r in merged.get("rules", []):
         rules.append(Rule(
@@ -257,11 +283,10 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
     # 子设备层开关：前端发 snake_case，旧配置/手工 YAML 可能写 camelCase，
     # 两个来源都认；merged 里恒有默认值，所以先从原始 data 取。
     pcs_sub = bool(data.get("pcs_sub", data.get("pcsSub", merged.get("pcs_sub", False))))
-    xb_sub = bool(data.get("xb_sub", data.get("xbSub", merged.get("xb_sub", False))))
     return AppConfig(
         connections=connections, active_connection=merged.get("active_connection", "cfg1"),
         prefix=prefix, groups=groups,
-        pcs_sub=pcs_sub, xb_sub=xb_sub,
+        pcs_sub=pcs_sub, xb_subs=xb_subs,
         rules=rules, write=write,
     )
 

@@ -33,7 +33,7 @@ GET /
   "groups": {"BMS": [{"key": "cu", "name": "簇", "range": "c001-c074",
                       "measures": ["totv", "soc"]}]},
   "pcs_sub": false,
-  "xb_sub": false,
+  "xb_subs": ["byr"],
   "rules": [{"cat": "电压", "min": 3.0, "max": 4.2, "unit": "V",
              "model": "walk", "match": "v*, *vol", "period": 86400}],
   "write": {"interval_ms": 1000, "mode": "realtime", "batch": 100,
@@ -89,7 +89,7 @@ curl -X POST http://127.0.0.1:8000/api/config \
 ```json
 {
   "counts": {"d": 20, "c": 80, "cu": 960, "p": 3840, "m": 15360,
-             "pcs": 1904, "pcsd": 0, "xb": 4, "xbd": 0},
+             "pcs": 1904, "pcsd": 0, "xb": 4, "byr": 4, "lvr": 0},
   "groups": {"BMS": 659060, "PCS": 22848, "XB": 52},
   "devices": 22168,
   "writable_devices": 18328,
@@ -106,7 +106,7 @@ curl -X POST http://127.0.0.1:8000/api/config \
 
 | 字段 | 含义 |
 |---|---|
-| `counts` | 各层节点数；`pcsd` 在 `pcs_sub=false` 时为 0，`xbd` 在 `xb_sub=false` 时为 0 |
+| `counts` | 各层节点数；子设备层未启用时为 0。`pcsd` 看 `pcs_sub`，箱变各子层（`byr` / `lvr` / …）看 `xb_subs` 里是否列了该 key |
 | `groups` | 各组序列数 = 节点数 × 该层测点数（整站口径） |
 | `devices` | 全部节点数（含没配测点的层） |
 | `writable_devices` | 实际会写入的设备数（只算挂了测点的层），**整站口径** |

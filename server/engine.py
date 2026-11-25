@@ -34,6 +34,17 @@ def parsed(cfg: AppConfig, key: str) -> List[str]:
     return (parse_range(lv.range) or []) if lv else []
 
 
+def xb_sub_levels(cfg: AppConfig) -> List[Level]:
+    """已启用的箱变子设备层（byr 变压器室 / lvr 低压室 / …）。
+
+    `groups["XB"]` 的第一层是箱变本体，其余都算子设备层；只有出现在
+    `cfg.xb_subs` 里的层才参与展开。层数与命名完全由配置决定，不在代码里写死。
+    """
+    levels = cfg.groups.get("XB", [])[1:]
+    on = {str(k).strip() for k in (cfg.xb_subs or [])}
+    return [lv for lv in levels if lv.key in on]
+
+
 def node_counts(cfg: AppConfig) -> Dict[str, int]:
     """各层设备节点数（与前端 nodeCount 一致）。"""
     d, c, cu, p, m = (parsed(cfg, k) for k in ("d", "c", "cu", "p", "m"))
@@ -52,8 +63,11 @@ def node_counts(cfg: AppConfig) -> Dict[str, int]:
     counts["pcsd"] = len(pcs) * len(pcsd) if cfg.pcs_sub and pcs and pcsd else 0
     xb = parsed(cfg, "xb")
     counts["xb"] = len(xb)
-    xbd = parsed(cfg, "xbd")
-    counts["xbd"] = len(xb) * len(xbd) if cfg.xb_sub and xb and xbd else 0
+    # 箱变子设备层是"箱变下的兄弟节点"，每层的节点数各自 = xb × 该层范围，互不相乘
+    enabled = {lv.key for lv in xb_sub_levels(cfg)}
+    for lv in cfg.groups.get("XB", [])[1:]:
+        sub = parsed(cfg, lv.key)
+        counts[lv.key] = len(xb) * len(sub) if lv.key in enabled and xb and sub else 0
     return counts
 
 
@@ -173,11 +187,14 @@ def iter_devices(cfg: AppConfig,
 
     xb = parsed(cfg, "xb")
     xb_measures = _level_measures_raw(cfg, "xb")
-    xbd = parsed(cfg, "xbd") if cfg.xb_sub else []
-    xbd_measures = _level_measures_raw(cfg, "xbd") if cfg.xb_sub else []
+    # (层 key, 该层编码, 该层测点)，一次算好，避免在箱变循环里重复解析范围与范围测点
+    xb_subs = [(lv.key, parsed(cfg, lv.key), _level_measures_raw(cfg, lv.key))
+               for lv in xb_sub_levels(cfg)]
     for xv in xb if "XB" in allow else []:
         if xb_measures:
             yield f"{pre}.{xv}", "XB", "xb", xb_measures
-        for dv in xbd:
-            if xbd_measures:
-                yield f"{pre}.{xv}.{dv}", "XB", "xbd", xbd_measures
+        for key, values, measures in xb_subs:
+            if not measures:
+                continue
+            for sv in values:
+                yield f"{pre}.{xv}.{sv}", "XB", key, measures
