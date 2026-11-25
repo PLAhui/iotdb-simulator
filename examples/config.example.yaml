@@ -86,9 +86,16 @@ groups:
       name: 箱变
       range: 35packtran101-35packtran102
       measures: [hvvol, lvvol, hvcur, lvcur, totp, totq, oiltemp, windingtemp, worksta, rsv01-rsv04]
+    - key: xbd
+      name: 子设备 d
+      range: d01-d02
+      measures: [hvvol, lvvol, hvcur, lvcur, totp, totq, oiltemp, worksta, rsv01-rsv02]
 
 # PCS 是否启用子设备层：false 时 pcsd 层不产出设备
 pcs_sub: false
+
+# 箱变是否启用子设备层：false 时 xbd 层不产出设备（路径形如 35packtran101.d01）
+xb_sub: false
 
 # 测点 → 值域 / 单位 / 变化模型
 #   model: walk 随机游走 | sine 正弦 | mono 单调累加 | state 三档 | const 常量 | flip 翻转

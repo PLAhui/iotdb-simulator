@@ -76,6 +76,7 @@ class AppConfig:
     prefix: Prefix = field(default_factory=Prefix)
     groups: Dict[str, List[Level]] = field(default_factory=dict)
     pcs_sub: bool = False
+    xb_sub: bool = False
     rules: List[Rule] = field(default_factory=list)
     write: WriteConfig = field(default_factory=WriteConfig)
 
@@ -133,9 +134,13 @@ def default_config() -> AppConfig:
                 Level("xb", "箱变", "35packtran101-35packtran102,35packtran201-35packtran202",
                       ["hvvol", "lvvol", "hvcur", "lvcur", "totp", "totq",
                        "oiltemp", "windingtemp", "worksta", "rsv01-rsv04"]),
+                Level("xbd", "子设备 d", "d01-d02",
+                      ["hvvol", "lvvol", "hvcur", "lvcur", "totp", "totq",
+                       "oiltemp", "worksta", "rsv01-rsv02"]),
             ],
         },
         pcs_sub=False,
+        xb_sub=False,
         rules=[
             Rule("电压", 3.0, 4.2, "V", "walk", "v*, *vol"),
             Rule("温度", 15, 45, "℃", "sine", "t*, *tem"),
@@ -154,7 +159,7 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
     base = default_config().to_dict()
     merged = copy.deepcopy(base)
     for key in ("connections", "activeConnection", "active_connection", "prefix",
-                "groups", "pcsSub", "pcs_sub", "rules", "write"):
+                "groups", "pcsSub", "pcs_sub", "xbSub", "xb_sub", "rules", "write"):
         if key in data:
             merged[key] = data[key]
     if "activeConnection" in merged and "active_connection" not in data:
@@ -195,6 +200,15 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
                 key=lv.get("key", ""), name=lv.get("name", ""),
                 range=lv.get("range", ""), measures=_norm_measures(lv.get("measures", [])),
             ))
+    # 兼容旧配置：新版本给某个大类新增的层级（如箱变子设备 xbd）在旧 YAML 里不存在，
+    # 按 key 补齐默认定义，否则界面上看不到这一层、引擎也不会展开它。
+    defaults = default_config().groups
+    for gname, dlevels in defaults.items():
+        have = groups.setdefault(gname, [])
+        keys = {lv.key for lv in have}
+        for dlv in dlevels:
+            if dlv.key not in keys:
+                have.append(Level(dlv.key, dlv.name, dlv.range, list(dlv.measures)))
     rules = []
     for r in merged.get("rules", []):
         rules.append(Rule(
@@ -240,10 +254,14 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
         dry_run=bool(wd.get("dry_run", False)),
         targets=targets,
     )
+    # 子设备层开关：前端发 snake_case，旧配置/手工 YAML 可能写 camelCase，
+    # 两个来源都认；merged 里恒有默认值，所以先从原始 data 取。
+    pcs_sub = bool(data.get("pcs_sub", data.get("pcsSub", merged.get("pcs_sub", False))))
+    xb_sub = bool(data.get("xb_sub", data.get("xbSub", merged.get("xb_sub", False))))
     return AppConfig(
         connections=connections, active_connection=merged.get("active_connection", "cfg1"),
         prefix=prefix, groups=groups,
-        pcs_sub=bool(merged.get("pcs_sub", merged.get("pcsSub", False))),
+        pcs_sub=pcs_sub, xb_sub=xb_sub,
         rules=rules, write=write,
     )
 

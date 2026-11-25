@@ -52,6 +52,8 @@ def node_counts(cfg: AppConfig) -> Dict[str, int]:
     counts["pcsd"] = len(pcs) * len(pcsd) if cfg.pcs_sub and pcs and pcsd else 0
     xb = parsed(cfg, "xb")
     counts["xb"] = len(xb)
+    xbd = parsed(cfg, "xbd")
+    counts["xbd"] = len(xb) * len(xbd) if cfg.xb_sub and xb and xbd else 0
     return counts
 
 
@@ -171,6 +173,11 @@ def iter_devices(cfg: AppConfig,
 
     xb = parsed(cfg, "xb")
     xb_measures = _level_measures_raw(cfg, "xb")
+    xbd = parsed(cfg, "xbd") if cfg.xb_sub else []
+    xbd_measures = _level_measures_raw(cfg, "xbd") if cfg.xb_sub else []
     for xv in xb if "XB" in allow else []:
         if xb_measures:
             yield f"{pre}.{xv}", "XB", "xb", xb_measures
+        for dv in xbd:
+            if xbd_measures:
+                yield f"{pre}.{xv}.{dv}", "XB", "xbd", xbd_measures

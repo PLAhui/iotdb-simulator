@@ -1216,14 +1216,18 @@
     ],
     XB: [
       {key:'xb', name:'箱变', range:'35packtran101-35packtran102,35packtran201-35packtran202', measures:[ S('hvvol'),S('lvvol'),S('hvcur'),S('lvcur'),S('totp'),S('totq'),S('oiltemp'),S('windingtemp'),S('worksta'),R('rsv01-rsv04') ]},
+      {key:'xbd', name:'子设备 d', range:'d01-d02', measures:[ S('hvvol'),S('lvvol'),S('hvcur'),S('lvcur'),S('totp'),S('totq'),S('oiltemp'),S('worksta'),R('rsv01-rsv02') ]},
     ],
   };
+  // 默认层级的快照：加载旧配置时用它补齐新增层级（如箱变子设备 xbd）
+  const GROUP_DEFAULTS = JSON.parse(JSON.stringify(GROUPS));
   // 连接配置：保存多套，选中其一使用（无“环境”层级概念）
   const DB_CONFIGS = [
     {id:'cfg1', name:'本地', host:'127.0.0.1',   port:'6667', user:'root', pwd:'root', database:'root.cm'},
     {id:'cfg2', name:'测试', host:'192.168.1.10', port:'6667', user:'root', pwd:'root', database:'root.cm'},
   ];
-  const state = { station:'cm', zone:'z01', signal:'yc', order:'forward', group:'BMS', pcsSub:false,
+  const state = { station:'cm', zone:'z01', signal:'yc', order:'forward', group:'BMS',
+                  pcsSub:false, xbSub:false,
                   activeDbId:'cfg1', targets:['BMS','PCS','XB'], writeExtra:null };
   function activeDb(){ return DB_CONFIGS.find(c=>c.id===state.activeDbId) || DB_CONFIGS[0]; }
 
@@ -1440,34 +1444,50 @@
       if(d>=0&&c>=0){ const tmp=list[d]; list[d]=list[c]; list[c]=tmp; }
     }
     if(state.group==='PCS' && !state.pcsSub) return list.filter(l=>l.key==='pcs');
+    if(state.group==='XB' && !state.xbSub) return list.filter(l=>l.key==='xb');
     return list;
   }
 
   // 每层给一个贴近真实取值的占位提示，比统一示例更好填
   const RANGE_HINT={c:'如 c101-c102',d:'如 d0001-d0020',cu:'如 c001-c074',p:'如 p01-p04',
-    m:'如 m01-m04',pcs:'如 pcs0101-pcs0104',pcsd:'如 d01-d04',xb:'如 xb01-xb08'};
+    m:'如 m01-m04',pcs:'如 pcs0101-pcs0104',pcsd:'如 d01-d04',xb:'如 xb01-xb08',xbd:'如 d01-d04'};
+
+  // 下级结构开关：PCS / 箱变各一组单选，文案与示例路径集中在这里
+  const SUB_SWITCH={
+    PCS:{flag:'pcsSub', attr:'psub', label:'PCS 下级结构（单选 · 切换会改变 PCS 层级与路径）',
+         head:'pcs0101.totv', sub:'pcs0101.d01.totv', subName:'d'},
+    XB:{flag:'xbSub', attr:'xsub', label:'箱变下级结构（单选 · 切换会改变箱变层级与路径）',
+        head:'35packtran101.hvvol', sub:'35packtran101.d01.hvvol', subName:'d'},
+  };
+  function renderSubSwitch(group){
+    const conf=SUB_SWITCH[group]; if(!conf) return null;
+    const on=state[conf.flag];
+    const rowId=conf.attr+'Row';
+    const sw=document.createElement('div');
+    sw.className='lv-switch';
+    sw.innerHTML=`
+      <div class="field">
+        <label>${conf.label}</label>
+        <div class="radio-row" id="${rowId}">
+          <div class="radio ${on?'':'sel'}" data-sub="off"><input type="radio" name="${conf.attr}" ${on?'':'checked'}> 仅直接测点 <code>${conf.head}</code></div>
+          <div class="radio ${on?'sel':''}" data-sub="on"><input type="radio" name="${conf.attr}" ${on?'checked':''}> 含子设备层 ${conf.subName} <code>${conf.sub}</code></div>
+        </div>
+      </div>`;
+    sw.querySelectorAll('.radio').forEach(el=>el.addEventListener('click',()=>{
+      sw.querySelectorAll('.radio').forEach(x=>{x.classList.remove('sel');x.querySelector('input').checked=false;});
+      el.classList.add('sel'); el.querySelector('input').checked=true;
+      state[conf.flag]=el.dataset.sub==='on';
+      renderLevels(); refresh();
+    }));
+    return sw;
+  }
   function renderLevels(){
     const box=document.getElementById('levelList'); box.innerHTML='';
     const extra=document.getElementById('groupExtra');
     if(extra) extra.innerHTML='';
-    if(state.group==='PCS'){
-      const sw=document.createElement('div');
-      sw.className='lv-switch';
-      sw.innerHTML=`
-        <div class="field">
-          <label>PCS 下级结构（单选 · 切换会改变 PCS 层级与路径）</label>
-          <div class="radio-row" id="pcsSubRow">
-            <div class="radio ${state.pcsSub?'':'sel'}" data-psub="off"><input type="radio" name="psub" ${state.pcsSub?'':'checked'}> 仅直接测点 <code>pcs0101.totv</code></div>
-            <div class="radio ${state.pcsSub?'sel':''}" data-psub="on"><input type="radio" name="psub" ${state.pcsSub?'checked':''}> 含子设备层 d <code>pcs0101.d01.totv</code></div>
-          </div>
-        </div>`;
-      (extra||box).appendChild(sw);
-      document.querySelectorAll('#pcsSubRow .radio').forEach(el=>el.addEventListener('click',()=>{
-        document.querySelectorAll('#pcsSubRow .radio').forEach(x=>{x.classList.remove('sel');x.querySelector('input').checked=false;});
-        el.classList.add('sel'); el.querySelector('input').checked=true;
-        state.pcsSub=el.dataset.psub==='on';
-        renderLevels(); refresh();
-      }));
+    if(SUB_SWITCH[state.group]){
+      const sw=renderSubSwitch(state.group);
+      if(sw) (extra||box).appendChild(sw);
     }
     visibleLevels().forEach(lv=>{
       const el=document.createElement('div'); el.className='lv'; el.id='lv_'+lv.key;
@@ -1656,14 +1676,15 @@
   }
   function firstOf(key,fb){ const r=getRange(key); return r?r.first:fb; }
   function nodeCount(key){
-    const d=getRange('d'),c=getRange('c'),cu=getRange('cu'),p=getRange('p'),m=getRange('m'),pcs=getRange('pcs'),pcsd=getRange('pcsd'),xb=getRange('xb');
+    const d=getRange('d'),c=getRange('c'),cu=getRange('cu'),p=getRange('p'),m=getRange('m'),pcs=getRange('pcs'),pcsd=getRange('pcsd'),xb=getRange('xb'),xbd=getRange('xbd');
     if(!d||!c||!cu||!p||!m) return 0;
     const dz=d.count, cz=d.count*c.count, cuz=cz*cu.count, pz=cuz*p.count, mz=pz*m.count;
     return {
       d:dz,c:cz,cu:cuz,p:pz,m:mz,
       pcs:pcs?pcs.count:0,
       pcsd:(state.pcsSub && pcs && pcsd)? pcs.count*pcsd.count : 0,
-      xb:xb?xb.count:0
+      xb:xb?xb.count:0,
+      xbd:(state.xbSub && xb && xbd)? xb.count*xbd.count : 0
     }[key];
   }
 
@@ -1686,7 +1707,7 @@
     [['BMS',GROUPS.BMS],['PCS',GROUPS.PCS],['箱变',GROUPS.XB]].forEach(([g,levels])=>{
       levels.forEach(lv=>{
         const raw=lv.range, r=parseRange(raw);
-        const off=(lv.key==='pcsd'&&!state.pcsSub);
+        const off=(lv.key==='pcsd'&&!state.pcsSub)||(lv.key==='xbd'&&!state.xbSub);
         const mp=measureCount(lv);
         html+=`<tr class="${r?'':'bad'}">
           <td class="grp"><span>${g}</span></td>
@@ -1707,7 +1728,7 @@
     renderRangeDiag();
 
     const d=edgeOf('d'),c=edgeOf('c'),cu=edgeOf('cu'),p=edgeOf('p'),m=edgeOf('m');
-    const pcs=edgeOf('pcs'),pcsd=edgeOf('pcsd'),xb=edgeOf('xb');
+    const pcs=edgeOf('pcs'),pcsd=edgeOf('pcsd'),xb=edgeOf('xb'),xbd=edgeOf('xbd');
     const cF=cabinEdge(d.first,c.first), cL=cabinEdge(d.last,c.last);
     const mLv=GROUPS.BMS.find(l=>l.key==='m');
     const vr=mLv.measures.find(x=>/^v\d+-v\d+$/.test(x.name)), tr=mLv.measures.find(x=>/^t\d+-t\d+$/.test(x.name));
@@ -1715,7 +1736,8 @@
     const t1=tr?tr.name.split('-')[0]:'t001', tN=tr?tr.name.split('-')[1]:'t012';
     const cM=GROUPS.BMS.find(l=>l.key==='c').measures;
     const cuM=GROUPS.BMS.find(l=>l.key==='cu').measures;
-    const pcsM=GROUPS.PCS[0].measures, pcsdM=GROUPS.PCS[1].measures, xbM=GROUPS.XB[0].measures;
+    const pcsM=GROUPS.PCS[0].measures, pcsdM=(GROUPS.PCS[1]||{measures:[]}).measures,
+          xbM=GROUPS.XB[0].measures, xbdLv=GROUPS.XB[1]||{measures:[]}, xbdM=xbdLv.measures;
     const last=a=>a.length?a[a.length-1].name:'—';
     const lines=[];
 
@@ -1746,12 +1768,17 @@
     lines.push(`<span class="k">箱变 XB</span>  <span class="cmt"># ${measureCount(GROUPS.XB[0])} 点/台 · 首 / 末</span>`);
     lines.push(`  ${pre}.<span class="hl">${xb.first}</span>.<span class="hl">${xbM[0]?.name||'hvvol'}</span>  <span class="dim">首</span>`);
     lines.push(`  ${pre}.<span class="hl">${xb.last}</span>.<span class="hl">${last(xbM)}</span>  <span class="dim">末</span>`);
+    if(state.xbSub){
+      lines.push('', `<span class="k">箱变 · 子设备 d</span>  <span class="cmt"># ${measureCount(xbdLv)} 点/子设备 · 首 / 末</span>`);
+      lines.push(`  ${pre}.<span class="hl">${xb.first}</span>.<span class="hl">${xbd.first}</span>.<span class="hl">${xbdM[0]?.name||'hvvol'}</span>  <span class="dim">首</span>`);
+      lines.push(`  ${pre}.<span class="hl">${xb.last}</span>.<span class="hl">${xbd.last}</span>.<span class="hl">${last(xbdM)}</span>  <span class="dim">末</span>`);
+    }
 
     document.getElementById('preview').innerHTML=lines.join('\n');
     // 折叠状态下的一行摘要：几层 / 多少台设备 / 首条路径
     const pvSum=document.getElementById('pvSum');
     if(pvSum){
-      const layers=allLevels().length;
+      const layers=allLevels().filter(l=>(l.key==='pcsd'?state.pcsSub:true)&&(l.key==='xbd'?state.xbSub:true)).length;
       let devs=0; allLevels().forEach(l=>{ devs+=(nodeCount(l.key)||0); });
       const first=`${pre}.${cF}.${cu.first}.<b>${cuM[0]?.name||'totv'}</b>`;
       pvSum.innerHTML=`${layers} 层 · ${devs.toLocaleString('en-US')} 台设备 · 首条 ${first}`;
@@ -1895,7 +1922,7 @@
     const val=k=>{ const r=getRange(k); return r?r.values:[]; };
     const lvOf=k=>allLevels().find(l=>l.key===k);
     const d=val('d'),c=val('c'),cu=val('cu'),p=val('p'),m=val('m');
-    const pcs=val('pcs'), pcsd=state.pcsSub?val('pcsd'):[], xb=val('xb');
+    const pcs=val('pcs'), pcsd=state.pcsSub?val('pcsd'):[], xb=val('xb'), xbd=state.xbSub?val('xbd'):[];
     const nodes=[];
     if(d.length&&c.length&&cu.length&&p.length&&m.length){
       for(const dv of d){
@@ -1919,7 +1946,10 @@
       nodes.push({path:`${pre}.${pv}`,group:'PCS',key:'pcs'});
       for(const dv of pcsd) nodes.push({path:`${pre}.${pv}.${dv}`,group:'PCS',key:'pcsd'});
     }
-    for(const xv of xb) nodes.push({path:`${pre}.${xv}`,group:'XB',key:'xb'});
+    for(const xv of xb){
+      nodes.push({path:`${pre}.${xv}`,group:'XB',key:'xb'});
+      for(const dv of xbd) nodes.push({path:`${pre}.${xv}.${dv}`,group:'XB',key:'xbd'});
+    }
     // 同层所有节点共用一份展开后的测点数组（整站 1.8 万节点，逐节点展开会白算几十万次）
     const msCache={};
     const measuresOf=k=>msCache[k]||(msCache[k]=expandMeasures(lvOf(k)));
@@ -1927,7 +1957,7 @@
     return nodes;
   }
 
-  const LAYER_NAME={d:'堆',c:'舱',cu:'簇',p:'包',m:'模组',pcs:'PCS',pcsd:'PCS 子设备',xb:'箱变'};
+  const LAYER_NAME={d:'堆',c:'舱',cu:'簇',p:'包',m:'模组',pcs:'PCS',pcsd:'PCS 子设备',xb:'箱变',xbd:'箱变子设备'};
 
   // 每张卡的逐条明细：一条序列一行 / 一台设备一行 / 一个节点一行
   // items 用生成器惰性产出，整站 68 万序列也不会一次性占满内存
@@ -2496,7 +2526,7 @@
         user:c.user,password:c.pwd,database:c.database})),
       active_connection: state.activeDbId,
       prefix:{station:state.station,zone:state.zone,signal:state.signal,order:state.order},
-      groups: GROUPS, pcs_sub: state.pcsSub,
+      groups: GROUPS, pcs_sub: state.pcsSub, xb_sub: state.xbSub,
       rules: RULE_ROWS.map(r=>({cat:r.cat,min:r.min,max:r.max,unit:r.unit,model:r.model,match:r.match})),
       write:{
         interval_ms: Number(document.getElementById('interval').value)||1000,
@@ -2631,11 +2661,20 @@
         state.activeDbId=cfg.active_connection||DB_CONFIGS[0].id;
         if(cfg.prefix){ state.station=cfg.prefix.station; state.zone=cfg.prefix.zone;
           state.signal=cfg.prefix.signal; state.order=cfg.prefix.order; }
-        if(cfg.groups){ ['BMS','PCS','XB'].forEach(g=>{ if(cfg.groups[g]) GROUPS[g]=cfg.groups[g].map(l=>({
-          key:l.key,name:l.name,range:l.range,
-          measures:(l.measures||[]).map(m=>typeof m==='string'?parseMeasure(m):m).filter(Boolean),
-        })); }); }
+        if(cfg.groups){ ['BMS','PCS','XB'].forEach(g=>{ if(cfg.groups[g]){
+          const parsed=cfg.groups[g].map(l=>({
+            key:l.key,name:l.name,range:l.range,
+            measures:(l.measures||[]).map(m=>typeof m==='string'?parseMeasure(m):m).filter(Boolean),
+          }));
+          // 旧配置里没有的层级（新增的箱变子设备 xbd）按默认定义补回来
+          const have=new Set(parsed.map(l=>l.key));
+          (GROUP_DEFAULTS[g]||[]).forEach(d=>{
+            if(!have.has(d.key)) parsed.push(JSON.parse(JSON.stringify(d)));
+          });
+          GROUPS[g]=parsed;
+        } }); }
         if(typeof cfg.pcs_sub==='boolean') state.pcsSub=cfg.pcs_sub;
+        if(typeof cfg.xb_sub==='boolean') state.xbSub=cfg.xb_sub;
         if(cfg.rules&&cfg.rules.length){ RULE_ROWS.splice(0,RULE_ROWS.length,...cfg.rules.map(r=>({
           cat:r.cat,min:r.min,max:r.max,unit:r.unit,model:r.model,match:r.match,
         }))); }

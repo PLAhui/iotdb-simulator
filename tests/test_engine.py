@@ -10,11 +10,12 @@ from server.config import config_from_dict
 from server.engine import iter_devices, node_counts, scale, writable_device_count
 
 
-def make_cfg(pcs_sub: bool = False, order: str = "forward"):
+def make_cfg(pcs_sub: bool = False, order: str = "forward", xb_sub: bool = False):
     """构造一棵小树：2 堆 × 2 舱 × 3 簇 × 2 包 × 2 模组。"""
     return config_from_dict({
         "prefix": {"station": "cm", "zone": "z01", "signal": "yc", "order": order},
         "pcs_sub": pcs_sub,
+        "xb_sub": xb_sub,
         "groups": {
             "BMS": [
                 {"key": "d", "name": "堆", "range": "d0001-d0002", "measures": []},
@@ -32,6 +33,8 @@ def make_cfg(pcs_sub: bool = False, order: str = "forward"):
             ],
             "XB": [
                 {"key": "xb", "name": "箱变", "range": "35packtran101",
+                 "measures": ["hvvol"]},
+                {"key": "xbd", "name": "子设备 d", "range": "d01-d02",
                  "measures": ["hvvol"]},
             ],
         },
@@ -52,6 +55,17 @@ class TestNodeCounts(unittest.TestCase):
     def test_pcs_sub_toggle(self):
         self.assertEqual(node_counts(make_cfg())["pcsd"], 0)
         self.assertEqual(node_counts(make_cfg(pcs_sub=True))["pcsd"], 4)
+
+    def test_xb_sub_toggle(self):
+        # 箱变子设备层默认关闭，开启后节点数 = 箱变数 × 子设备数
+        self.assertEqual(node_counts(make_cfg())["xbd"], 0)
+        self.assertEqual(node_counts(make_cfg(xb_sub=True))["xbd"], 2)
+
+    def test_sub_switches_are_independent(self):
+        counts = node_counts(make_cfg(pcs_sub=True, xb_sub=False))
+        self.assertEqual((counts["pcsd"], counts["xbd"]), (4, 0))
+        counts = node_counts(make_cfg(pcs_sub=False, xb_sub=True))
+        self.assertEqual((counts["pcsd"], counts["xbd"]), (0, 2))
 
 
 class TestScale(unittest.TestCase):
@@ -94,6 +108,22 @@ class TestIterDevices(unittest.TestCase):
         sub = [d for d in devices if d[2] == "pcsd"]
         self.assertEqual(len(sub), 4)
         self.assertEqual(sub[0][0], "root.cm.z01.yc.pcs0101.d01")
+
+    def test_xb_sub_adds_child_devices(self):
+        devices = list(iter_devices(make_cfg(xb_sub=True)))
+        sub = [d for d in devices if d[2] == "xbd"]
+        self.assertEqual(len(sub), 2)
+        self.assertEqual(sub[0][0], "root.cm.z01.yc.35packtran101.d01")
+        self.assertEqual(sub[0][1], "XB")
+
+    def test_xb_sub_progress_denominator_matches_produced(self):
+        cfg = make_cfg(xb_sub=True)
+        produced = len(list(iter_devices(cfg)))
+        self.assertEqual(scale(cfg)["target_devices"], produced)
+        self.assertEqual(writable_device_count(cfg), produced)
+        # 关闭后子设备不再产出，分母同步回落
+        off = make_cfg(xb_sub=False)
+        self.assertEqual(scale(off)["target_devices"], len(list(iter_devices(off))))
 
 
 class TestWriteTargets(unittest.TestCase):

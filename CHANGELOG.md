@@ -5,7 +5,10 @@
 
 ## [Unreleased]
 
-_开发中，暂无待发布条目。_
+### Added
+- 箱变增加子设备层：`groups.XB` 新增 `xbd` 层（默认 `d01-d02`），`xb_sub` 开关控制是否展开，路径形如 `root.cm.z01.yc.35packtran101.d01`；与 `pcs_sub` 互相独立，关闭时 `counts.xbd` 为 0、序列数与设备数不变
+- 层级「下级结构」开关由单一 PCS 分支改为 `SUB_SWITCH` 驱动，PCS / 箱变共用同一套渲染与文案
+- 旧配置兼容：`config.yaml` 里没有 `xbd` 层时，后端 `config_from_dict()` 与前端 `loadConfig()` 各自按默认定义补齐，避免升级后界面看不到新层
 
 ### Planned
 - 写入并发化（按设备分片多线程提交）
