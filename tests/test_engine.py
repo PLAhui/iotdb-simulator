@@ -10,11 +10,10 @@ from server.config import config_from_dict
 from server.engine import iter_devices, node_counts, scale, writable_device_count
 
 
-def make_cfg(pcs_sub: bool = False, order: str = "forward", xb_subs=None):
-    """构造一棵小树：2 堆 × 2 舱 × 3 簇 × 2 包 × 2 模组，箱变带两个子设备层。"""
+def make_cfg(pcs_subs=None, order: str = "forward", xb_subs=None):
+    """构造一棵小树：2 堆 × 2 舱 × 3 簇 × 2 包 × 2 模组，PCS / 箱变各带子设备层。"""
     data = {
         "prefix": {"station": "cm", "zone": "z01", "signal": "yc", "order": order},
-        "pcs_sub": pcs_sub,
         "groups": {
             "BMS": [
                 {"key": "d", "name": "堆", "range": "d0001-d0002", "measures": []},
@@ -41,6 +40,8 @@ def make_cfg(pcs_sub: bool = False, order: str = "forward", xb_subs=None):
         },
         "rules": [],
     }
+    if pcs_subs is not None:
+        data["pcs_subs"] = pcs_subs
     if xb_subs is not None:
         data["xb_subs"] = xb_subs
     return config_from_dict(data)
@@ -58,7 +59,47 @@ class TestNodeCounts(unittest.TestCase):
 
     def test_pcs_sub_toggle(self):
         self.assertEqual(node_counts(make_cfg())["pcsd"], 0)
-        self.assertEqual(node_counts(make_cfg(pcs_sub=True))["pcsd"], 4)
+        self.assertEqual(node_counts(make_cfg(pcs_subs=["pcsd"]))["pcsd"], 4)
+
+    def test_pcs_supports_multiple_sub_layers(self):
+        # PCS 与箱变同构：多个子层是兄弟节点，各自 = pcs × 该层范围，互不相乘
+        cfg = config_from_dict({
+            "pcs_subs": ["pcsd", "pcsfan"],
+            "groups": {"PCS": [
+                {"key": "pcs", "name": "PCS", "range": "pcs0101-pcs0102",
+                 "measures": ["totv"]},
+                {"key": "pcsd", "name": "子设备 d", "range": "d01-d02",
+                 "measures": ["totv"]},
+                {"key": "pcsfan", "name": "风扇", "range": "fan", "measures": ["sta"]},
+            ]},
+        })
+        counts = node_counts(cfg)
+        self.assertEqual((counts["pcs"], counts["pcsd"], counts["pcsfan"]), (2, 4, 2))
+        paths = [d[0] for d in iter_devices(cfg) if d[1] == "PCS"]
+        self.assertEqual(paths, [
+            "root.cm.z01.yc.pcs0101",
+            "root.cm.z01.yc.pcs0101.d01", "root.cm.z01.yc.pcs0101.d02",
+            "root.cm.z01.yc.pcs0101.fan",
+            "root.cm.z01.yc.pcs0102",
+            "root.cm.z01.yc.pcs0102.d01", "root.cm.z01.yc.pcs0102.d02",
+            "root.cm.z01.yc.pcs0102.fan",
+        ])
+        # 只开一层时另一层不产出
+        self.assertEqual(node_counts(make_cfg(pcs_subs=["pcsfan"]))["pcsd"], 0)
+
+    def test_legacy_pcs_sub_bool_enables_every_layer(self):
+        # 旧配置 pcs_sub: true 等价于"启用配置里定义的所有 PCS 子层"
+        cfg = config_from_dict({
+            "pcs_sub": True,
+            "groups": {"PCS": [
+                {"key": "pcs", "name": "PCS", "range": "pcs0101", "measures": ["totv"]},
+                {"key": "pcsd", "name": "子设备 d", "range": "d01", "measures": ["totv"]},
+                {"key": "pcsfan", "name": "风扇", "range": "fan01", "measures": ["sta"]},
+            ]},
+        })
+        self.assertEqual(cfg.pcs_subs, ["pcsd", "pcsfan"])
+        counts = node_counts(cfg)
+        self.assertEqual((counts["pcsd"], counts["pcsfan"]), (1, 1))
 
     def test_xb_sub_toggle(self):
         # 箱变子设备层默认全关，逐个开启后节点数 = 箱变数 × 该层设备数
@@ -92,9 +133,9 @@ class TestNodeCounts(unittest.TestCase):
         self.assertEqual((counts["xb"], counts["byr"], counts["lvr"]), (1, 0, 1))
 
     def test_sub_switches_are_independent(self):
-        counts = node_counts(make_cfg(pcs_sub=True, xb_subs=[]))
+        counts = node_counts(make_cfg(pcs_subs=["pcsd"], xb_subs=[]))
         self.assertEqual((counts["pcsd"], counts["byr"], counts["lvr"]), (4, 0, 0))
-        counts = node_counts(make_cfg(pcs_sub=False, xb_subs=["byr", "lvr"]))
+        counts = node_counts(make_cfg(xb_subs=["byr", "lvr"]))
         self.assertEqual((counts["pcsd"], counts["byr"], counts["lvr"]), (0, 2, 1))
 
     def test_legacy_xb_sub_bool_enables_every_layer(self):
@@ -198,7 +239,7 @@ class TestIterDevices(unittest.TestCase):
         self.assertEqual(sum(1 for d in devices if d[1] == "XB"), 1)
 
     def test_pcs_sub_adds_child_devices(self):
-        devices = list(iter_devices(make_cfg(pcs_sub=True)))
+        devices = list(iter_devices(make_cfg(pcs_subs=["pcsd"])))
         sub = [d for d in devices if d[2] == "pcsd"]
         self.assertEqual(len(sub), 4)
         self.assertEqual(sub[0][0], "root.cm.z01.yc.pcs0101.d01")

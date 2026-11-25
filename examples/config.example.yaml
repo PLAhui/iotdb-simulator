@@ -97,8 +97,9 @@ groups:
       range: lvr01
       measures: [lvvol, lvcur, totp, totq, worksta, rsv01-rsv02]
 
-# PCS 是否启用子设备层：false 时 pcsd 层不产出设备
-pcs_sub: false
+# PCS 启用哪些子设备层：列出即启用，可多层；[] 时只写 PCS 本体
+# 例：[pcsd] → pcs0101.d01；[pcsd, pcsfan] → 两个子层都是 pcs0101 下的兄弟节点
+pcs_subs: []
 
 # 箱变启用哪些子设备层：列出即启用，可只开一层或全开
 # 例：[byr, lvr] → 35packtran101.byr01 / 35packtran101.lvr01

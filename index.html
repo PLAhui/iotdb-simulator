@@ -1263,7 +1263,7 @@
     {id:'cfg2', name:'测试', host:'192.168.1.10', port:'6667', user:'root', pwd:'root', database:'root.cm'},
   ];
   const state = { station:'cm', zone:'z01', signal:'yc', order:'forward', group:'BMS',
-                  pcsSub:false, xbSubs:[],
+                  pcsSubs:[], xbSubs:[],
                   activeDbId:'cfg1', targets:['BMS','PCS','XB'], writeExtra:null };
   function activeDb(){ return DB_CONFIGS.find(c=>c.id===state.activeDbId) || DB_CONFIGS[0]; }
 
@@ -1475,15 +1475,20 @@
   function allLevels(){ return [...GROUPS.BMS,...GROUPS.PCS,...GROUPS.XB]; }
 
   // 子设备层：约定 groups[g] 的第一层是设备本体，其余都是挂在它下面的子设备层。
-  // PCS 只有一层（pcsd，单选开 / 关）；箱变可以有多层（byr / lvr / …），逐层勾选。
+  // PCS 与箱变共用同一套模型——层数、层名、范围都由用户在界面上增删改，勾选即启用。
+  const SUB_STATE={PCS:'pcsSubs', XB:'xbSubs'};   // 分组 → 启用层的 key 数组
   function groupSubLayers(group){ return (GROUPS[group]||[]).slice(1); }
-  function subEnabled(key){
-    if(key==='pcsd') return state.pcsSub;
-    return state.xbSubs.includes(key);
+  function subsOf(group){ return state[SUB_STATE[group]]||[]; }
+  function subGroupOf(key){
+    for(const g of Object.keys(SUB_STATE)){
+      if(groupSubLayers(g).some(l=>l.key===key)) return g;
+    }
+    return null;
   }
-  function isSubLayer(key){
-    if(key==='pcsd') return true;
-    return (GROUPS.XB||[]).slice(1).some(l=>l.key===key);
+  function isSubLayer(key){ return !!subGroupOf(key); }
+  function subEnabled(key){
+    const g=subGroupOf(key);
+    return g ? subsOf(g).includes(key) : true;    // 设备本体层恒为启用
   }
 
   // 当前显示的层级列表：BMS 按堆舱顺序决定 d/c 先后；PCS / 箱变只显示已启用的子层
@@ -1499,56 +1504,36 @@
 
   // 每层给一个贴近真实取值的占位提示，比统一示例更好填
   const RANGE_HINT={c:'如 c101-c102',d:'如 d0001-d0020',cu:'如 c001-c074',p:'如 p01-p04',
-    m:'如 m01-m04',pcs:'如 pcs0101-pcs0104',pcsd:'如 d01-d04',xb:'如 xb01-xb08',
+    m:'如 m01-m04',pcs:'如 pcs0101-pcs0104',pcsd:'如 d01-d04 或 d',xb:'如 xb01-xb08',
     byr:'如 byr 或 byr01-byr04',lvr:'如 lvr 或 lvr01-lvr04'};
   // 自定义子层的 key 不在上表里，兜底给一个"单台 / 多台都行"的示例
   function rangeHint(lv){
     return RANGE_HINT[lv.key] || (isSubLayer(lv.key) ? '如 hvr 或 hvr01-hvr04' : '如 c101-c102');
   }
 
-  // 下级结构开关：PCS 是单选（有 / 无子设备层），箱变是多选（每个间隔一层）
-  const SUB_SWITCH={
-    PCS:{flag:'pcsSub', attr:'psub', label:'PCS 下级结构（单选 · 切换会改变 PCS 层级与路径）',
-         head:'pcs0101.totv', sub:'pcs0101.d01.totv', subName:'d'},
+  // 箱变与 PCS 的子设备层管理器共用一块 UI，文案按分组切换
+  const SUB_MGR={
+    PCS:{title:'PCS', path:'pcs0101.d01.totv', add:'＋ 添加子层'},
+    XB: {title:'箱变', path:'35packtran01.byr01.tem', add:'＋ 添加子层'},
   };
-  function renderSubSwitch(group){
-    const conf=SUB_SWITCH[group]; if(!conf) return null;
-    const on=state[conf.flag];
-    const rowId=conf.attr+'Row';
-    const sw=document.createElement('div');
-    sw.className='lv-switch';
-    sw.innerHTML=`
-      <div class="field">
-        <label>${conf.label}</label>
-        <div class="radio-row" id="${rowId}">
-          <div class="radio ${on?'':'sel'}" data-sub="off"><input type="radio" name="${conf.attr}" ${on?'':'checked'}> 仅直接测点 <code>${conf.head}</code></div>
-          <div class="radio ${on?'sel':''}" data-sub="on"><input type="radio" name="${conf.attr}" ${on?'checked':''}> 含子设备层 ${conf.subName} <code>${conf.sub}</code></div>
-        </div>
-      </div>`;
-    sw.querySelectorAll('.radio').forEach(el=>el.addEventListener('click',()=>{
-      sw.querySelectorAll('.radio').forEach(x=>{x.classList.remove('sel');x.querySelector('input').checked=false;});
-      el.classList.add('sel'); el.querySelector('input').checked=true;
-      state[conf.flag]=el.dataset.sub==='on';
-      renderLevels(); refresh();
-    }));
-    return sw;
-  }
 
-  // 箱变子设备层：层定义由用户维护（增 / 改 / 删 + 勾选启用），不在代码里写死层名。
-  // 每层是箱变下的兄弟节点，路径 = 前缀.箱变.该层设备.测点；范围可写 d01-d04 展开多台。
-  let xbForm=null;              // {mode:'add'|'edit', key} —— 当前展开的表单
-  let xbDel={key:null, timer:null};   // 删除的二次确认（3 秒内再点才真删）
+  // 子设备层管理器（PCS / 箱变共用）：层定义由用户维护（增 / 改 / 删 + 勾选启用），
+  // 不在代码里写死层名。每层是父设备下的兄弟节点，路径 = 前缀.父设备.该层设备.测点；
+  // 范围可写 d01-d04 展开多台，也可以写 byr 这种不带编号的单台。
+  let subForm=null;                   // {group, mode:'add'|'edit', key} —— 当前展开的表单
+  let subDel={key:null, timer:null};  // 删除的二次确认（3 秒内再点才真删）
   const LAYER_KEY_RE=/^[A-Za-z][A-Za-z0-9_]*$/;
 
-  function setXbSub(key, on){
-    // 顺序统一按 groups.XB 的定义归一，避免配置里出现"顺序取决于点击顺序"
-    const all=groupSubLayers('XB').map(l=>l.key), want=new Set(state.xbSubs);
+  function setSub(group, key, on){
+    // 顺序统一按 groups[group] 的定义归一，避免配置里出现"顺序取决于点击顺序"
+    const all=groupSubLayers(group).map(l=>l.key), want=new Set(subsOf(group));
     on ? want.add(key) : want.delete(key);
-    state.xbSubs=all.filter(k=>want.has(k));
+    state[SUB_STATE[group]]=all.filter(k=>want.has(k));
   }
   // 范围在层级行里改动时，chip 上的范围与台数同步刷新
-  function syncXbChip(key){
-    const lv=GROUPS.XB.find(l=>l.key===key); if(!lv) return;
+  function syncSubChip(key){
+    const g=subGroupOf(key); if(!g) return;
+    const lv=GROUPS[g].find(l=>l.key===key); if(!lv) return;
     const chip=[...document.querySelectorAll('#xsubRow .xsub-chip')].find(el=>el.dataset.sub===key);
     if(!chip) return;
     const n=nodeCount(key)||0;
@@ -1556,66 +1541,70 @@
     if(code){ code.textContent=lv.range||'未配置'; code.title=lv.range||'未配置设备范围'; }
     if(num){ num.textContent=n?n+' 台':'—'; num.classList.toggle('zero',!n); }
   }
-  function removeXbLayer(key){    const lv=GROUPS.XB.find((l,i)=>i>0&&l.key===key);
+  function removeSubLayer(group, key){
+    const lv=GROUPS[group].find((l,i)=>i>0&&l.key===key);
     if(!lv) return;
-    GROUPS.XB=GROUPS.XB.filter(l=>l!==lv);
-    state.xbSubs=state.xbSubs.filter(k=>k!==key);
-    xbForm=null;
+    GROUPS[group]=GROUPS[group].filter(l=>l!==lv);
+    state[SUB_STATE[group]]=subsOf(group).filter(k=>k!==key);
+    subForm=null;
     renderLevels(); refresh();
     toast(`已删除子设备层 ${key}`);
   }
-  function openXbForm(mode, key){
-    xbForm={mode, key:key||null};
+  function openSubForm(group, mode, key){
+    subForm={group, mode, key:key||null};
     const box=document.getElementById('xsubForm'); if(!box) return;
-    const lv=key?GROUPS.XB.find(l=>l.key===key):null;
+    const lv=key?GROUPS[group].find(l=>l.key===key):null;
     box.hidden=false;
     const k=document.getElementById('xfKey'), n=document.getElementById('xfName'), r=document.getElementById('xfRange');
     k.value=lv?lv.key:''; n.value=lv?lv.name:''; r.value=lv?lv.range:'';
     [k,n,r].forEach(el=>el.classList.remove('bad'));
     k.focus(); if(lv) k.select();
   }
-  function closeXbForm(){
-    xbForm=null;
+  function closeSubForm(){
+    subForm=null;
     const box=document.getElementById('xsubForm'); if(box) box.hidden=true;
   }
-  function submitXbForm(){
-    if(!xbForm) return;
+  function submitSubForm(){
+    if(!subForm) return;
+    const group=subForm.group;
     const kEl=document.getElementById('xfKey'), nEl=document.getElementById('xfName'), rEl=document.getElementById('xfRange');
-    const mode=xbForm.mode, oldKey=xbForm.mode==='edit'?xbForm.key:null;
+    const mode=subForm.mode, oldKey=subForm.mode==='edit'?subForm.key:null;
     const key=kEl.value.trim(), name=nEl.value.trim()||key, range=rEl.value.trim();
     [kEl,nEl,rEl].forEach(el=>el.classList.remove('bad'));
     const bad=(el,msg)=>{ el.classList.add('bad'); el.focus(); toast(msg); };
     if(!LAYER_KEY_RE.test(key)) return bad(kEl,'层 key 需以字母开头，只能含字母、数字、下划线');
     if(allLevels().some(l=>l.key===key && l.key!==oldKey)) return bad(kEl,`层 key「${key}」已被其它层级占用`);
     if(range && !parseRange(range)) return bad(rEl,'设备范围无法解析：单台写 hvr，多台写 hvr01-hvr02 或 d01,d02');
+    const subs=subsOf(group);
     if(mode==='add'){
-      GROUPS.XB.push({key, name, range, measures:[]});
-      state.xbSubs.push(key);
+      GROUPS[group].push({key, name, range, measures:[]});
+      subs.push(key);
     }else{
-      const lv=GROUPS.XB.find(l=>l.key===oldKey);
-      if(!lv){ closeXbForm(); return; }
-      const wasOn=state.xbSubs.includes(oldKey);
+      const lv=GROUPS[group].find(l=>l.key===oldKey);
+      if(!lv){ closeSubForm(); return; }
+      const wasOn=subs.includes(oldKey);
       lv.key=key; lv.name=name; lv.range=range;
-      state.xbSubs=state.xbSubs.map(k=>k===oldKey?key:k);
-      if(!wasOn) state.xbSubs=state.xbSubs.filter(k=>k!==key);
+      state[SUB_STATE[group]]=subs.map(k=>k===oldKey?key:k);
+      if(!wasOn) state[SUB_STATE[group]]=subsOf(group).filter(k=>k!==key);
     }
     // 顺序按定义归一；只保留真实存在的层
-    state.xbSubs=groupSubLayers('XB').map(l=>l.key).filter(k=>state.xbSubs.includes(k));
-    closeXbForm();
+    state[SUB_STATE[group]]=groupSubLayers(group).map(l=>l.key).filter(k=>subsOf(group).includes(k));
+    closeSubForm();
     renderLevels(); refresh();
     toast(mode==='add' ? `已添加子设备层 ${key}，展开该行可配测点`
                        : `已更新子设备层 ${key}，范围与测点按新定义重算`);
   }
-  function armXbDelete(btn, key){
-    if(xbDel.key===key){
-      clearTimeout(xbDel.timer); xbDel={key:null, timer:null};
-      removeXbLayer(key); return;
+  function armSubDelete(btn, key){
+    if(subDel.key===key){
+      clearTimeout(subDel.timer); subDel={key:null, timer:null};
+      const g=subGroupOf(key); if(g) removeSubLayer(g, key);
+      return;
     }
-    if(xbDel.timer) clearTimeout(xbDel.timer);
+    if(subDel.timer) clearTimeout(subDel.timer);
     const prev=document.querySelector('#xsubRow .xc-del.armed');
     if(prev){ prev.classList.remove('armed'); prev.textContent='×'; }
-    xbDel={key, timer:setTimeout(()=>{
-      xbDel={key:null, timer:null};
+    subDel={key, timer:setTimeout(()=>{
+      subDel={key:null, timer:null};
       // 不用属性选择器拼 key：配置里可能带特殊字符，属性选择器会直接抛错
       document.querySelectorAll('#xsubRow .xc-del').forEach(b=>{
         if(b.dataset.del===key){ b.classList.remove('armed'); b.textContent='×'; }
@@ -1623,21 +1612,22 @@
     },3000)};
     btn.classList.add('armed'); btn.textContent='确认';
   }
-  function renderXbSubs(){
-    const subs=groupSubLayers('XB');
-    xbForm=null;                      // 重建后表单收起，避免残留半填状态
+  function renderSubManager(group){
+    const subs=groupSubLayers(group), conf=SUB_MGR[group]||SUB_MGR.XB;
+    const on=subsOf(group);
+    subForm=null;                     // 重建后表单收起，避免残留半填状态
     const sw=document.createElement('div');
     sw.className='lv-switch xsub-mgr';
     sw.innerHTML=`
       <div class="field">
-        <label>箱变子设备层（勾选即启用 · 每层是箱变下的兄弟节点，路径 = 箱变.子设备.测点）</label>
+        <label>${conf.title}子设备层（勾选即启用 · 每层是${conf.title}下的兄弟节点，路径 = ${conf.path}）</label>
         <div class="radio-row xsub-row" id="xsubRow">
           ${subs.map(lv=>{
-            const on=state.xbSubs.includes(lv.key);
+            const sel=on.includes(lv.key);
             const n=nodeCount(lv.key)||0;
-            return `<span class="radio xsub-chip${on?' sel':''}" data-sub="${escapeHtml(lv.key)}"
-                role="checkbox" aria-checked="${on}" tabindex="0">
-              <input type="checkbox" ${on?'checked':''} tabindex="-1" aria-hidden="true">
+            return `<span class="radio xsub-chip${sel?' sel':''}" data-sub="${escapeHtml(lv.key)}"
+                role="checkbox" aria-checked="${sel}" tabindex="0">
+              <input type="checkbox" ${sel?'checked':''} tabindex="-1" aria-hidden="true">
               <span class="xc-main" data-edit="${escapeHtml(lv.key)}" title="点击编辑层定义（key / 名称 / 设备范围）">
                 <b>${escapeHtml(lv.key)}</b><span>${escapeHtml(lv.name)}</span>
               </span>
@@ -1646,7 +1636,7 @@
               <button class="xc-del" data-del="${escapeHtml(lv.key)}" title="删除该层（点两次确认）" tabindex="-1">×</button>
             </span>`;
           }).join('')}
-          <button class="xsub-add" id="xsubAdd" title="新增一个挂在箱变下的子设备层">＋ 添加子层</button>
+          <button class="xsub-add" id="xsubAdd" title="新增一个挂在${conf.title}下的子设备层">${conf.add}</button>
         </div>
         <div class="xsub-form" id="xsubForm" hidden>
           <div class="xf-f xf-k"><label>层 key</label><input id="xfKey" placeholder="如 hvr" spellcheck="false"></div>
@@ -1661,9 +1651,9 @@
     sw.querySelectorAll('#xsubRow .xsub-chip').forEach(el=>{
       el.addEventListener('click',e=>{
         if(e.target.closest('[data-del]')) return;          // 删除按钮单独处理
-        if(e.target.closest('[data-edit]')){ openXbForm('edit', el.dataset.sub); return; }
+        if(e.target.closest('[data-edit]')){ openSubForm(group,'edit', el.dataset.sub); return; }
         e.preventDefault();                                  // 勾选状态以 state 为准
-        setXbSub(el.dataset.sub, !state.xbSubs.includes(el.dataset.sub));
+        setSub(group, el.dataset.sub, !subsOf(group).includes(el.dataset.sub));
         renderLevels(); refresh();
       });
       el.addEventListener('keydown',e=>{
@@ -1673,20 +1663,20 @@
     sw.querySelectorAll('#xsubRow .xc-del').forEach(btn=>{
       btn.addEventListener('click',e=>{
         e.preventDefault(); e.stopPropagation();
-        armXbDelete(btn, btn.dataset.del);
+        armSubDelete(btn, btn.dataset.del);
       });
     });
     // 这里 sw 还没挂到文档上，只能在自己内部查，不能用 document.getElementById
     const addBtn=sw.querySelector('#xsubAdd');
-    if(addBtn) addBtn.addEventListener('click',()=>openXbForm('add'));
+    if(addBtn) addBtn.addEventListener('click',()=>openSubForm(group,'add'));
     const save=sw.querySelector('#xfSave'), cancel=sw.querySelector('#xfCancel');
-    if(save) save.addEventListener('click',submitXbForm);
-    if(cancel) cancel.addEventListener('click',closeXbForm);
+    if(save) save.addEventListener('click',submitSubForm);
+    if(cancel) cancel.addEventListener('click',closeSubForm);
     ['xfKey','xfName','xfRange'].forEach(id=>{
       const el=sw.querySelector('#'+id); if(!el) return;
       el.addEventListener('keydown',e=>{
-        if(e.key==='Enter'){ e.preventDefault(); submitXbForm(); }
-        else if(e.key==='Escape'){ e.preventDefault(); closeXbForm(); }
+        if(e.key==='Enter'){ e.preventDefault(); submitSubForm(); }
+        else if(e.key==='Escape'){ e.preventDefault(); closeSubForm(); }
       });
     });
     return sw;
@@ -1695,8 +1685,7 @@
     const box=document.getElementById('levelList'); box.innerHTML='';
     const extra=document.getElementById('groupExtra');
     if(extra) extra.innerHTML='';
-    const sw = state.group==='XB' ? renderXbSubs()
-             : (SUB_SWITCH[state.group] ? renderSubSwitch(state.group) : null);
+    const sw = SUB_STATE[state.group] ? renderSubManager(state.group) : null;
     if(sw) (extra||box).appendChild(sw);
     visibleLevels().forEach(lv=>{
       const el=document.createElement('div'); el.className='lv'; el.id='lv_'+lv.key;
@@ -1749,7 +1738,7 @@
       inp.addEventListener('input',e=>{
         lv.range=e.target.value; e.target.classList.remove('bad');
         // chip 上的范围与台数跟着输入实时走，否则改完范围 chip 还显示旧数字
-        if(state.group==='XB' && isSubLayer(lv.key)) syncXbChip(lv.key);
+        if(isSubLayer(lv.key)) syncSubChip(lv.key);
         refresh();
       });
       inp.addEventListener('change',e=>{
@@ -1896,11 +1885,10 @@
     }
     const pcs=getRange('pcs'), xb=getRange('xb');
     if(key==='pcs') return pcs?pcs.count:0;
-    if(key==='pcsd'){ const r=getRange('pcsd'); return (state.pcsSub&&pcs&&r)? pcs.count*r.count : 0; }
     if(key==='xb') return xb?xb.count:0;
-    // 箱变子设备层：每层各自 = 箱变数 × 该层范围，与其它子层互不相乘
-    const r=getRange(key);
-    return (xb&&r&&subEnabled(key))? xb.count*r.count : 0;
+    // 子设备层：PCS 挂 pcs、箱变挂 xb，每层各自 = 父设备数 × 该层范围，与其它子层互不相乘
+    const r=getRange(key), parent=(subGroupOf(key)==='PCS')?pcs:xb;
+    return (parent&&r&&subEnabled(key))? parent.count*r.count : 0;
   }
 
   function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -1943,7 +1931,7 @@
     renderRangeDiag();
 
     const d=edgeOf('d'),c=edgeOf('c'),cu=edgeOf('cu'),p=edgeOf('p'),m=edgeOf('m');
-    const pcs=edgeOf('pcs'),pcsd=edgeOf('pcsd'),xb=edgeOf('xb');
+    const pcs=edgeOf('pcs'),xb=edgeOf('xb');
     const cF=cabinEdge(d.first,c.first), cL=cabinEdge(d.last,c.last);
     const mLv=GROUPS.BMS.find(l=>l.key==='m');
     const vr=mLv.measures.find(x=>/^v\d+-v\d+$/.test(x.name)), tr=mLv.measures.find(x=>/^t\d+-t\d+$/.test(x.name));
@@ -1951,8 +1939,7 @@
     const t1=tr?tr.name.split('-')[0]:'t001', tN=tr?tr.name.split('-')[1]:'t012';
     const cM=GROUPS.BMS.find(l=>l.key==='c').measures;
     const cuM=GROUPS.BMS.find(l=>l.key==='cu').measures;
-    const pcsM=GROUPS.PCS[0].measures, pcsdM=(GROUPS.PCS[1]||{measures:[]}).measures,
-          xbM=GROUPS.XB[0].measures;
+    const pcsM=GROUPS.PCS[0].measures, xbM=GROUPS.XB[0].measures;
     const last=a=>a.length?a[a.length-1].name:'—';
     const lines=[];
 
@@ -1973,10 +1960,14 @@
     lines.push(`<span class="k">PCS · 直接测点</span>  <span class="cmt"># ${measureCount(GROUPS.PCS[0])} 点/台 · 首 / 末</span>`);
     lines.push(`  ${pre}.<span class="hl">${pcs.first}</span>.<span class="hl">${pcsM[0]?.name||'totv'}</span>  <span class="dim">首</span>`);
     lines.push(`  ${pre}.<span class="hl">${pcs.last}</span>.<span class="hl">${last(pcsM)}</span>  <span class="dim">末</span>`);
-    if(state.pcsSub){
-      lines.push('', `<span class="k">PCS · 子设备 d</span>  <span class="cmt"># ${measureCount(GROUPS.PCS[1])} 点/子设备 · 首 / 末</span>`);
-      lines.push(`  ${pre}.<span class="hl">${pcs.first}</span>.<span class="hl">${pcsd.first}</span>.<span class="hl">${pcsdM[0]?.name||'totv'}</span>  <span class="dim">首</span>`);
-      lines.push(`  ${pre}.<span class="hl">${pcs.last}</span>.<span class="hl">${pcsd.last}</span>.<span class="hl">${last(pcsdM)}</span>  <span class="dim">末</span>`);
+    // PCS 子设备层：与箱变同构，开了几层就列几段，层名与测点全按配置走
+    for(const lv of groupSubLayers('PCS')){
+      if(!subsOf('PCS').includes(lv.key)) continue;
+      const e=edgeOf(lv.key), lm=lv.measures;
+      lines.push('', `<span class="k">PCS · ${escapeHtml(lv.name)} ${lv.key}</span>  <span class="cmt"># ${measureCount(lv)} 点/台 · 首 / 末</span>`);
+      if(!e.count){ lines.push('  <span class="dim">未配置设备范围，该层暂不产出设备</span>'); continue; }
+      lines.push(`  ${pre}.<span class="hl">${pcs.first}</span>.<span class="hl">${e.first}</span>.<span class="hl">${lm[0]?.name||'—'}</span>  <span class="dim">首</span>`);
+      lines.push(`  ${pre}.<span class="hl">${pcs.last}</span>.<span class="hl">${e.last}</span>.<span class="hl">${last(lm)}</span>  <span class="dim">末</span>`);
     }
     lines.push('');
 
@@ -1985,7 +1976,7 @@
     lines.push(`  ${pre}.<span class="hl">${xb.last}</span>.<span class="hl">${last(xbM)}</span>  <span class="dim">末</span>`);
     // 箱变子设备层：有几个开着的层就列几段，层名与测点全按配置走
     for(const lv of groupSubLayers('XB')){
-      if(!state.xbSubs.includes(lv.key)) continue;
+      if(!subsOf('XB').includes(lv.key)) continue;
       const e=edgeOf(lv.key), lm=lv.measures;
       lines.push('', `<span class="k">箱变 · ${escapeHtml(lv.name)} ${lv.key}</span>  <span class="cmt"># ${measureCount(lv)} 点/台 · 首 / 末</span>`);
       if(!e.count){ lines.push('  <span class="dim">未配置设备范围，该层暂不产出设备</span>'); continue; }
@@ -2141,10 +2132,11 @@
     const val=k=>{ const r=getRange(k); return r?r.values:[]; };
     const lvOf=k=>allLevels().find(l=>l.key===k);
     const d=val('d'),c=val('c'),cu=val('cu'),p=val('p'),m=val('m');
-    const pcs=val('pcs'), pcsd=state.pcsSub?val('pcsd'):[], xb=val('xb');
-    // 箱变子设备层：每层一份编码列表，逐个挂在同一台箱变下
-    const xbSubs=groupSubLayers('XB').filter(l=>state.xbSubs.includes(l.key))
+    const pcs=val('pcs'), xb=val('xb');
+    // 子设备层：每层一份编码列表，逐个挂在同一台父设备下（PCS / 箱变同一套规则）
+    const subLists=g=>groupSubLayers(g).filter(l=>subsOf(g).includes(l.key))
       .map(l=>({key:l.key, values:val(l.key)}));
+    const pcsSubs=subLists('PCS'), xbSubs=subLists('XB');
     const nodes=[];
     if(d.length&&c.length&&cu.length&&p.length&&m.length){
       for(const dv of d){
@@ -2166,7 +2158,8 @@
     }
     for(const pv of pcs){
       nodes.push({path:`${pre}.${pv}`,group:'PCS',key:'pcs'});
-      for(const dv of pcsd) nodes.push({path:`${pre}.${pv}.${dv}`,group:'PCS',key:'pcsd'});
+      for(const s of pcsSubs) for(const sv of s.values)
+        nodes.push({path:`${pre}.${pv}.${sv}`,group:'PCS',key:s.key});
     }
     for(const xv of xb){
       nodes.push({path:`${pre}.${xv}`,group:'XB',key:'xb'});
@@ -2753,7 +2746,7 @@
         user:c.user,password:c.pwd,database:c.database})),
       active_connection: state.activeDbId,
       prefix:{station:state.station,zone:state.zone,signal:state.signal,order:state.order},
-      groups: GROUPS, pcs_sub: state.pcsSub, xb_subs: state.xbSubs,
+      groups: GROUPS, pcs_subs: state.pcsSubs, xb_subs: state.xbSubs,
       rules: RULE_ROWS.map(r=>({cat:r.cat,min:r.min,max:r.max,unit:r.unit,model:r.model,match:r.match})),
       write:{
         interval_ms: Number(document.getElementById('interval').value)||1000,
@@ -2895,12 +2888,15 @@
             measures:(l.measures||[]).map(m=>typeof m==='string'?parseMeasure(m):m).filter(Boolean),
           }));
         } }); }
-        if(typeof cfg.pcs_sub==='boolean') state.pcsSub=cfg.pcs_sub;
-        // 箱变子层：新配置读 xb_subs 列表，旧配置的 xb_sub: true 当作"全开"；
+        // 子设备层：新配置读 xxx_subs 列表，旧配置的 xxx_sub: true 当作"全开"；
         // 只保留当前 groups 里真实存在的层，避免残留 key 拼出无效路径
-        const subKeys=groupSubLayers('XB').map(l=>l.key);
-        const rawSubs=Array.isArray(cfg.xb_subs)?cfg.xb_subs:(cfg.xb_sub?subKeys:[]);
-        state.xbSubs=subKeys.filter(k=>rawSubs.includes(k));
+        const readSubs=(g,list,legacy)=>{
+          const keys=groupSubLayers(g).map(l=>l.key);
+          const raw=Array.isArray(list)?list:(legacy?keys:[]);
+          return keys.filter(k=>raw.includes(k));
+        };
+        state.pcsSubs=readSubs('PCS', cfg.pcs_subs, cfg.pcs_sub);
+        state.xbSubs=readSubs('XB', cfg.xb_subs, cfg.xb_sub);
         if(cfg.rules&&cfg.rules.length){ RULE_ROWS.splice(0,RULE_ROWS.length,...cfg.rules.map(r=>({
           cat:r.cat,min:r.min,max:r.max,unit:r.unit,model:r.model,match:r.match,
         }))); }

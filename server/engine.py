@@ -34,6 +34,17 @@ def parsed(cfg: AppConfig, key: str) -> List[str]:
     return (parse_range(lv.range) or []) if lv else []
 
 
+def pcs_sub_levels(cfg: AppConfig) -> List[Level]:
+    """已启用的 PCS 子设备层（默认只有 pcsd 子设备 d，可自定义多层）。
+
+    `groups["PCS"]` 的第一层是 PCS 本体，其余都算子设备层；只有出现在
+    `cfg.pcs_subs` 里的层才参与展开。层数与命名完全由配置决定。
+    """
+    levels = cfg.groups.get("PCS", [])[1:]
+    on = {str(k).strip() for k in (cfg.pcs_subs or [])}
+    return [lv for lv in levels if lv.key in on]
+
+
 def xb_sub_levels(cfg: AppConfig) -> List[Level]:
     """已启用的箱变子设备层（byr 变压器室 / lvr 低压室 / …）。
 
@@ -59,8 +70,11 @@ def node_counts(cfg: AppConfig) -> Dict[str, int]:
         counts = {"d": dz, "c": cz, "cu": cuz, "p": pz, "m": mz}
     pcs = parsed(cfg, "pcs")
     counts["pcs"] = len(pcs)
-    pcsd = parsed(cfg, "pcsd")
-    counts["pcsd"] = len(pcs) * len(pcsd) if cfg.pcs_sub and pcs and pcsd else 0
+    # PCS 子设备层与箱变同一个模型：每层节点数各自 = pcs × 该层范围，互不相乘
+    enabled = {lv.key for lv in pcs_sub_levels(cfg)}
+    for lv in cfg.groups.get("PCS", [])[1:]:
+        sub = parsed(cfg, lv.key)
+        counts[lv.key] = len(pcs) * len(sub) if lv.key in enabled and pcs and sub else 0
     xb = parsed(cfg, "xb")
     counts["xb"] = len(xb)
     # 箱变子设备层是"箱变下的兄弟节点"，每层的节点数各自 = xb × 该层范围，互不相乘
@@ -176,14 +190,17 @@ def iter_devices(cfg: AppConfig,
 
     pcs = parsed(cfg, "pcs")
     pcs_measures = _level_measures_raw(cfg, "pcs")
-    pcsd = parsed(cfg, "pcsd") if cfg.pcs_sub else []
-    pcsd_measures = _level_measures_raw(cfg, "pcsd") if cfg.pcs_sub else []
+    # 每层一份 (key, 编码列表, 测点)，与箱变子层完全同构
+    pcs_subs = [(lv.key, parsed(cfg, lv.key), _level_measures_raw(cfg, lv.key))
+                for lv in pcs_sub_levels(cfg)]
     for pv in pcs if "PCS" in allow else []:
         if pcs_measures:
             yield f"{pre}.{pv}", "PCS", "pcs", pcs_measures
-        for dv in pcsd:
-            if pcsd_measures:
-                yield f"{pre}.{pv}.{dv}", "PCS", "pcsd", pcsd_measures
+        for key, values, measures in pcs_subs:
+            if not measures:
+                continue
+            for sv in values:
+                yield f"{pre}.{pv}.{sv}", "PCS", key, measures
 
     xb = parsed(cfg, "xb")
     xb_measures = _level_measures_raw(cfg, "xb")

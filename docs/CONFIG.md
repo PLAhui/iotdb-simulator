@@ -14,12 +14,12 @@
 | `active_connection` | string | 当前使用的连接 `id`；缺失时回落到第一套 |
 | `prefix` | object | 路径前缀与拼接规则 |
 | `groups` | map | `BMS` / `PCS` / `XB` 三组层级定义 |
-| `pcs_sub` | bool | 是否启用 PCS 子设备层，默认 `false` |
+| `pcs_subs` | list | 启用的 PCS 子设备层 `key` 列表，如 `[pcsd]` 或 `[pcsd, pcsfan]`；默认 `[]`（只写 PCS 本体）。层定义来自 `groups.PCS`，界面上可增删改。旧字段 `pcs_sub: true` 等价于「启用配置里定义的全部子层」 |
 | `xb_subs` | list | 启用的箱变子设备层 `key` 列表，如 `[byr, lvr]`；默认 `[]`（只写箱变本体）。层定义来自 `groups.XB`，界面上可增删改。旧字段 `xb_sub: true` 等价于「启用配置里定义的全部子层」 |
 | `rules` | list | 测点 → 值域 / 单位 / 变化模型 |
 | `write` | object | 写入参数 |
 
-前端提交的 JSON 允许用驼峰 `activeConnection` / `pcsSub` / `xbSubs`，后端会归一为下划线形式。
+前端提交的 JSON 允许用驼峰 `activeConnection` / `pcsSubs` / `xbSubs`，后端会归一为下划线形式。
 
 ## 2. connections
 
@@ -77,7 +77,7 @@ groups:
 
 | 字段 | 说明 |
 |---|---|
-| `key` | 层级键：BMS 用 `d/c/cu/p/m`，PCS 用 `pcs/pcsd`，箱变用 `xb` + 任意多个自定义子层（示例 `byr/lvr`）。前三类固定，箱变子层可在界面上增删改；`engine.py` 按这些键取值 |
+| `key` | 层级键：BMS 用 `d/c/cu/p/m`，PCS 用 `pcs` + 任意多个自定义子层（示例 `pcsd`），箱变用 `xb` + 任意多个自定义子层（示例 `byr/lvr`）。BMS 五层固定，PCS / 箱变的子层可在界面上增删改；`engine.py` 按这些键取值 |
 | `name` | 展示名（堆 / 舱 / 簇 / 包 / 模组） |
 | `range` | 该层编码范围，决定这一层有多少节点；空或非法 → 该层 0 个节点 |
 | `measures` | 挂在该层的测点，支持单点与区间；**空数组表示该层不写入** |
@@ -93,19 +93,20 @@ PCS 与箱变是独立分支，不参与上面的相乘：
 
 ```
 root.cm.z01.yc.pcs0101          # PCS
-root.cm.z01.yc.pcs0101.d01      # PCS 子设备（pcs_sub: true）
+root.cm.z01.yc.pcs0101.d01      # PCS 子设备（pcs_subs: [pcsd]）
 root.cm.z01.yc.35packtran101    # 箱变
 root.cm.z01.yc.35packtran101.byr01  # 箱变 · 变压器室（xb_subs: [byr]）
 root.cm.z01.yc.35packtran101.lvr01  # 箱变 · 低压室（xb_subs: [byr, lvr]）
 ```
 
-箱变子设备层不限于一层：`groups.XB` 里 `xb` 之后的每一层都是一个可选子设备层，
-默认示例 `byr`（变压器室）、`lvr`（低压室）。层 key、名称、范围都可以在界面
-「路径与结构 → 箱变 → ＋ 添加子层」里直接改，也可以删掉重新加。各子层是**兄弟节点**，
-都直接挂在箱变下，节点数各自为 `xb × 该层范围`，互不相乘；范围写 `d01-d04` 时，
-每台箱变下会展开 4 台子设备。
+PCS 与箱变的子设备层是同一套模型，都不限于一层：`groups.PCS` 里 `pcs` 之后的每一层、
+`groups.XB` 里 `xb` 之后的每一层，都是一个可选子设备层（PCS 默认示例 `pcsd` 子设备 d，
+箱变默认示例 `byr` 变压器室、`lvr` 低压室）。层 key、名称、范围都可以在界面
+「路径与结构 → PCS / 箱变 → ＋ 添加子层」里直接改，也可以删掉重新加。各子层是**兄弟节点**，
+都直接挂在父设备下，节点数各自为 `pcs × 该层范围` / `xb × 该层范围`，互不相乘；
+范围写 `d01-d04` 时每台父设备下展开 4 台子设备，写 `byr` 这种不带编号的编码则是一台。
 
-PCS 与箱变的开关互相独立：`pcs_sub` 管 `pcsd`，`xb_subs` 管箱变的所有子层；
+两类的开关互相独立：`pcs_subs` 管 PCS 的所有子层，`xb_subs` 管箱变的所有子层；
 未启用的层 `counts` 为 0、生成器不进入该层，序列数与设备数与开启前完全一致。
 
 ## 5. 编码范围语法

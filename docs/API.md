@@ -32,7 +32,7 @@ GET /
   "prefix": {"station": "cm", "zone": "z01", "signal": "yc", "order": "reverse"},
   "groups": {"BMS": [{"key": "cu", "name": "簇", "range": "c001-c074",
                       "measures": ["totv", "soc"]}]},
-  "pcs_sub": false,
+  "pcs_subs": [],
   "xb_subs": ["byr"],
   "rules": [{"cat": "电压", "min": 3.0, "max": 4.2, "unit": "V",
              "model": "walk", "match": "v*, *vol", "period": 86400}],
@@ -106,7 +106,7 @@ curl -X POST http://127.0.0.1:8000/api/config \
 
 | 字段 | 含义 |
 |---|---|
-| `counts` | 各层节点数；子设备层未启用时为 0。`pcsd` 看 `pcs_sub`，箱变各子层（`byr` / `lvr` / …）看 `xb_subs` 里是否列了该 key |
+| `counts` | 各层节点数；子设备层未启用时为 0。PCS 各子层（`pcsd` / …）看 `pcs_subs`、箱变各子层（`byr` / `lvr` / …）看 `xb_subs` 里是否列了该 key |
 | `groups` | 各组序列数 = 节点数 × 该层测点数（整站口径） |
 | `devices` | 全部节点数（含没配测点的层） |
 | `writable_devices` | 实际会写入的设备数（只算挂了测点的层），**整站口径** |
