@@ -1423,10 +1423,11 @@
     });
   }
 
-  // 通用范围解析：展开为完整编码数组 values，三种写法可混用
+  // 通用范围解析：展开为完整编码数组 values，几种写法可混用
   //  1) 数值连续：d0001-d0020、pcs0101-pcs2004、35packtran101-35packtran202、c001-c099
   //  2) 尾缀连续：c101a-c101d（末尾单字母递增）
   //  3) 逐项列举：c101a,c101b,c201a,c201b 或 c101 c102 c201 c202（逗号/空格分隔）
+  //  4) 单个编码：byr、lvr、zbhv —— 不带编号也算一台（箱变子层常见写法）
   function parseRange(str){
     const raw=String(str||'').trim();
     if(!raw) return null;
@@ -1449,8 +1450,9 @@
         }
       }
       if(!seg) seg=[tk];
-      // 编码必须是字母/数字组合且至少含一位数字，否则视为解析失败
-      if(seg.some(v=>!/^[A-Za-z0-9]+$/.test(v) || !/\d/.test(v))) return null;
+      // 编码只要求字母/数字组合：单台可以直接写 byr / zbhv，不强制带编号；
+      // 带连字符却没解析成功的（c001-d074、d01-d0x）仍判非法，不会降级成一台怪名字的设备
+      if(seg.some(v=>!/^[A-Za-z0-9]+$/.test(v))) return null;
       segments.push({values:seg}); values.push(...seg);
     }
     if(!values.length) return null;
@@ -1498,10 +1500,10 @@
   // 每层给一个贴近真实取值的占位提示，比统一示例更好填
   const RANGE_HINT={c:'如 c101-c102',d:'如 d0001-d0020',cu:'如 c001-c074',p:'如 p01-p04',
     m:'如 m01-m04',pcs:'如 pcs0101-pcs0104',pcsd:'如 d01-d04',xb:'如 xb01-xb08',
-    byr:'如 byr01',lvr:'如 lvr01'};
-  // 自定义子层的 key 不在上表里，兜底给一个"可展开多台"的示例
+    byr:'如 byr 或 byr01-byr04',lvr:'如 lvr 或 lvr01-lvr04'};
+  // 自定义子层的 key 不在上表里，兜底给一个"单台 / 多台都行"的示例
   function rangeHint(lv){
-    return RANGE_HINT[lv.key] || (isSubLayer(lv.key) ? '如 d01-d04' : '如 c101-c102');
+    return RANGE_HINT[lv.key] || (isSubLayer(lv.key) ? '如 hvr 或 hvr01-hvr04' : '如 c101-c102');
   }
 
   // 下级结构开关：PCS 是单选（有 / 无子设备层），箱变是多选（每个间隔一层）
@@ -1585,7 +1587,7 @@
     const bad=(el,msg)=>{ el.classList.add('bad'); el.focus(); toast(msg); };
     if(!LAYER_KEY_RE.test(key)) return bad(kEl,'层 key 需以字母开头，只能含字母、数字、下划线');
     if(allLevels().some(l=>l.key===key && l.key!==oldKey)) return bad(kEl,`层 key「${key}」已被其它层级占用`);
-    if(range && !parseRange(range)) return bad(rEl,'设备范围无法解析：用 hvr01-hvr02 或 d01,d02');
+    if(range && !parseRange(range)) return bad(rEl,'设备范围无法解析：单台写 hvr，多台写 hvr01-hvr02 或 d01,d02');
     if(mode==='add'){
       GROUPS.XB.push({key, name, range, measures:[]});
       state.xbSubs.push(key);
@@ -1649,7 +1651,7 @@
         <div class="xsub-form" id="xsubForm" hidden>
           <div class="xf-f xf-k"><label>层 key</label><input id="xfKey" placeholder="如 hvr" spellcheck="false"></div>
           <div class="xf-f xf-n"><label>名称</label><input id="xfName" placeholder="如 高压室"></div>
-          <div class="xf-f xf-range"><label>设备范围</label><input id="xfRange" placeholder="hvr01-hvr02 或 d01-d04，可展开多台" spellcheck="false"></div>
+          <div class="xf-f xf-range"><label>设备范围</label><input id="xfRange" placeholder="单台写 hvr；多台写 hvr01-hvr04" spellcheck="false"></div>
           <div class="xf-btns">
             <button class="btn primary" id="xfSave">保存</button>
             <button class="btn" id="xfCancel">取消</button>
@@ -1708,9 +1710,9 @@
             <span class="lv-n">${lv.name}</span>
           </div>
           <div class="lv-fld">
-            <input class="lv-inp" type="text" id="range_${lv.key}" value="${lv.range}"
+            <input class="lv-inp" type="text" id="range_${lv.key}" value="${escapeHtml(lv.range)}"
               placeholder="${rangeHint(lv)}" spellcheck="false" aria-label="${lv.name}编码范围"
-              title="连续：d0001-d0020 / c101a-c101d；跳号列举：c101,c201">
+              title="单台：byr；连续：d0001-d0020 / c101a-c101d；跳号列举：c101,c201">
           </div>
           <div class="lv-dev${dev?'':' zero'}" id="dev_${lv.key}">${dev?dev+' 台':'—'}</div>
           <div class="lv-mp">
@@ -1753,7 +1755,7 @@
       inp.addEventListener('change',e=>{
         const v=e.target.value.trim(), ok=!v||!!parseRange(v);
         e.target.classList.toggle('bad',!ok);
-        if(!ok) toast('范围无法解析，请用 d0001-d0020 或 c101,c201 格式');
+        if(!ok) toast('范围无法解析，请用 d0001-d0020、c101,c201，单台直接写 byr');
       });
       // 单行高度的 textarea：Enter 直接添加（批量粘贴的主力路径），Shift+Enter 手动换行
       const addBox=document.getElementById('add_'+lv.key);

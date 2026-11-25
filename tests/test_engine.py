@@ -69,6 +69,23 @@ class TestNodeCounts(unittest.TestCase):
         counts = node_counts(make_cfg(xb_subs=["byr", "lvr"]))
         self.assertEqual((counts["byr"], counts["lvr"]), (2, 1))
 
+    def test_sub_layer_code_without_number_counts_one(self):
+        # 子层编码不带编号（byr / zblv）也应算一台：每台箱变下就这一个间隔
+        cfg = config_from_dict({
+            "xb_subs": ["byr"],
+            "groups": {"XB": [
+                {"key": "xb", "name": "箱变", "range": "35packtran01-35packtran02",
+                 "measures": ["hvvol"]},
+                {"key": "byr", "name": "变压器室", "range": "byr", "measures": ["tem"]},
+            ]},
+        })
+        counts = node_counts(cfg)
+        self.assertEqual((counts["xb"], counts["byr"]), (2, 2))
+        subs = [d for d in iter_devices(cfg) if d[2] == "byr"]
+        self.assertEqual([d[0] for d in subs],
+                         ["root.cm.z01.yc.35packtran01.byr",
+                          "root.cm.z01.yc.35packtran02.byr"])
+
     def test_xb_sub_switches_are_independent(self):
         # 两个子层各开各的：只开 lvr 不影响 byr
         counts = node_counts(make_cfg(xb_subs=["lvr"]))

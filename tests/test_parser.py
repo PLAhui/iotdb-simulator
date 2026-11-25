@@ -28,8 +28,14 @@ class TestParseRange(unittest.TestCase):
     def test_spaces_around_hyphen_are_normalized(self):
         self.assertEqual(parse_range("d0001 - d0003"), ["d0001", "d0002", "d0003"])
 
+    def test_single_code_without_number(self):
+        # 箱变子层常见写法：每台箱变下就一个变压器室 / 低压室，编码里不带编号
+        self.assertEqual(parse_range("byr"), ["byr"])
+        self.assertEqual(parse_range("zbhv"), ["zbhv"])
+        self.assertEqual(parse_range("byr，lvr hvr"), ["byr", "lvr", "hvr"])
+
     def test_invalid_inputs_return_none(self):
-        for text in ("", "   ", "zzz", "c001-d074", "c1-c"):
+        for text in ("", "   ", "c001-d074", "c1-c", "d01-d0x", "byr01-"):
             with self.subTest(text=text):
                 self.assertIsNone(parse_range(text))
 

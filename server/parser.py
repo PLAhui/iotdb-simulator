@@ -1,9 +1,10 @@
 """范围解析与测点展开。
 
-与前端 index.html 的 parseRange / parseMeasure 逻辑严格对齐，支持三种编码写法：
+与前端 index.html 的 parseRange / parseMeasure 逻辑严格对齐，支持四种编码写法：
   1) 数值连续：d0001-d0020、pcs0101-pcs2004、35packtran101-35packtran102
   2) 尾缀连续：c101a-c101d（末尾单字母递增）
   3) 逐项列举：c101,c102,c201,c202 或 c101 c102 c201 c202（逗号/空格分隔）
+  4) 单个编码：byr、lvr、zbhv —— 不带编号也算一台设备（箱变子层常见写法）
 """
 from __future__ import annotations
 
@@ -43,7 +44,10 @@ def parse_range(text: str) -> Optional[List[str]]:
                         seg = [f"{letters.group(1)}{chr(i)}" for i in range(a, b + 1)]
         if seg is None:
             seg = [token]
-        if any(not _VALID_CODE.match(v) or not re.search(r"\d", v) for v in seg):
+        # 编码只要求是字母/数字组合：单台设备可以直接写一个编码（byr / zbhv / main），
+        # 不强制带编号。带连字符却没解析成功的写法（c001-d074、d01-d0x）仍然非法——
+        # '-' 不在允许字符集里，不会静默降级成"一台名字叫这串字符的设备"。
+        if any(not _VALID_CODE.match(v) for v in seg):
             return None
         out.extend(seg)
     return out or None
