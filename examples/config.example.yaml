@@ -86,7 +86,8 @@ groups:
       name: 箱变
       range: 35packtran101-35packtran102
       measures: [hvvol, lvvol, hvcur, lvcur, totp, totq, oiltemp, windingtemp, worksta, rsv01-rsv04]
-    # 箱变内部的每个间隔都是一层子设备：xb 之后可以有任意多层
+    # 箱变内部的每个间隔都是一层子设备：xb 之后可以有任意多层（界面「＋ 添加子层」也能增删改）
+    # range 可写区间：d01-d04 表示每台箱变下展开 4 台子设备
     - key: byr
       name: 变压器室
       range: byr01

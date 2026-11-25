@@ -103,8 +103,9 @@ class TestNodeCounts(unittest.TestCase):
         cfg = config_from_dict({"xb_subs": "byr，lvr"})
         self.assertEqual(cfg.xb_subs, ["byr", "lvr"])
 
-    def test_legacy_xbd_layer_is_migrated(self):
-        # 上一版未发布的通用子层 xbd 被具名层取代，旧配置加载后不应残留
+    def test_custom_sub_layer_is_kept(self):
+        # 子层定义完全由配置决定：上一版的通用层 xbd 也是一层普通的自定义层，
+        # 不再被迁移成 byr / lvr（否则用户自定义的层会被悄悄改掉）
         cfg = config_from_dict({
             "xb_sub": True,
             "groups": {"XB": [
@@ -113,9 +114,35 @@ class TestNodeCounts(unittest.TestCase):
             ]},
         })
         keys = [lv.key for lv in cfg.groups["XB"]]
-        self.assertNotIn("xbd", keys)
-        self.assertEqual(keys[:3], ["xb", "byr", "lvr"])
-        self.assertEqual(cfg.xb_subs, ["byr", "lvr"])
+        self.assertEqual(keys, ["xb", "xbd"])
+        self.assertEqual(cfg.xb_subs, ["xbd"])
+        self.assertEqual(node_counts(cfg)["xbd"], 2)
+
+    def test_custom_layers_are_not_backfilled_with_defaults(self):
+        # 删掉的默认子层不应在解析时复活：已有 XB 组按配置原样保留
+        cfg = config_from_dict({
+            "groups": {"XB": [
+                {"key": "xb", "name": "箱变", "range": "35packtran101", "measures": ["hvvol"]},
+                {"key": "hvr", "name": "高压室", "range": "hvr01-hvr03", "measures": ["hvvol"]},
+            ]},
+        })
+        self.assertEqual([lv.key for lv in cfg.groups["XB"]], ["xb", "hvr"])
+        # 整组缺失时才回落到默认定义
+        cfg2 = config_from_dict({"groups": {}})
+        self.assertEqual([lv.key for lv in cfg2.groups["XB"]], ["xb", "byr", "lvr"])
+
+    def test_blank_and_duplicate_layer_keys_are_dropped(self):
+        cfg = config_from_dict({
+            "groups": {"XB": [
+                {"key": " xb ", "name": "箱变", "range": "35packtran101", "measures": ["hvvol"]},
+                {"key": "byr", "name": "变压器室", "range": "byr01", "measures": ["tem"]},
+                {"key": " byr ", "name": "重复层", "range": "byr02", "measures": ["hum"]},
+                {"key": "  ", "name": "空 key", "range": "d01", "measures": ["x"]},
+            ]},
+            "xb_subs": ["byr"],
+        })
+        self.assertEqual([lv.key for lv in cfg.groups["XB"]], ["xb", "byr"])
+        self.assertEqual(cfg.xb_subs, ["byr"])
 
 
 class TestScale(unittest.TestCase):

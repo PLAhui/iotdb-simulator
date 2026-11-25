@@ -200,26 +200,25 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
     groups = {}
     for gname, levels in merged.get("groups", {}).items():
         groups[gname] = []
+        seen = set()
         for lv in levels:
+            # 层定义由用户/配置决定：key 去空格、空 key 与重复 key 直接丢弃，
+            # 否则界面会出现两行同名层、生成器也会照着重复产出设备
+            key = str(lv.get("key", "")).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
             groups[gname].append(Level(
-                key=lv.get("key", ""), name=lv.get("name", ""),
-                range=lv.get("range", ""), measures=_norm_measures(lv.get("measures", [])),
+                key=key, name=str(lv.get("name", "")).strip() or key,
+                range=str(lv.get("range", "")).strip(),
+                measures=_norm_measures(lv.get("measures", [])),
             ))
-    # 兼容旧配置：新版本给某个大类新增的层级（如箱变子设备 byr / lvr）在旧 YAML 里不存在，
-    # 按 key 补齐默认定义，否则界面上看不到这一层、引擎也不会展开它。
-    defaults = default_config().groups
-    default_subs = [lv.key for lv in defaults.get("XB", [])[1:]]
-    # 上一版（未发布）箱变只有一个通用子层 xbd，现改为具名层（byr / lvr …）。
-    # 配置里只有 xbd、没有任何新层时整体迁移掉，避免同一台箱变下重复产出两套设备。
-    xb_have = groups.setdefault("XB", [])
-    if any(lv.key == "xbd" for lv in xb_have) and not any(lv.key in default_subs for lv in xb_have):
-        groups["XB"] = [lv for lv in xb_have if lv.key != "xbd"]
-    for gname, dlevels in defaults.items():
-        have = groups.setdefault(gname, [])
-        keys = {lv.key for lv in have}
-        for dlv in dlevels:
-            if dlv.key not in keys:
-                have.append(Level(dlv.key, dlv.name, dlv.range, list(dlv.measures)))
+    # 只给"整组缺失"的大类补默认值。已有的组一律以配置为准——不按 key 回补，
+    # 否则用户在界面上删掉的箱变子层，下次保存 / 重启又会被默认定义加回来。
+    for gname, dlevels in default_config().groups.items():
+        if not groups.get(gname):
+            groups[gname] = [Level(lv.key, lv.name, lv.range, list(lv.measures))
+                             for lv in dlevels]
     # 箱变子设备层：新写法 xb_subs 是 key 列表（支持任意多层），旧写法 xb_sub: true
     # 表示"启用这份配置里定义的所有子层"。按 XB 组定义顺序过滤，未知 key 直接丢弃，
     # 免得拼出 35packtran101.hvr01 这种没有定义的路径。

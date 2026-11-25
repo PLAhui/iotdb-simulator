@@ -464,6 +464,42 @@
   .lv-switch .radio{padding:7px 12px;font-size:12px}
   .lv-switch .radio code{font-size:10.8px}
 
+  /* 箱变子设备层：可增删的 chips，直接显示层 key / 名称 / 范围 / 台数 */
+  .lv-extra .xsub-mgr{display:block;width:100%}
+  .xsub-row{gap:7px}
+  .xsub-chip{padding:6px 8px 6px 10px;gap:7px;cursor:pointer}
+  /* .field input{width:100%} 会把这里的小勾选框也拉成整行宽，必须显式定尺寸 */
+  .xsub-chip input[type="checkbox"]{width:14px;height:14px;flex:none;margin:0}
+  .xsub-chip .xc-main{display:flex;align-items:baseline;gap:5px;min-width:0;flex:0 1 auto}
+  .xsub-chip .xc-main b{font-family:var(--mono);font-size:11.5px;font-weight:600;color:#1e4fc4}
+  .xsub-chip .xc-main span{font-size:11.5px;color:var(--ink2);white-space:nowrap}
+  .xsub-chip .xc-main:hover span{color:#1d4ed8;text-decoration:underline dotted}
+  .xsub-chip .xc-range{max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    background:#f4f7fe;border-radius:4px;padding:1px 5px;cursor:pointer}
+  .xsub-chip.sel .xc-range{background:rgba(37,99,235,.09);color:#1e4fc4}
+  .xsub-chip .xc-num{font-style:normal;font-size:10.5px;color:#7b879c;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .xsub-chip .xc-num.zero{color:#b3bccc}
+  .xsub-chip .xc-del{border:0;background:transparent;padding:0 2px;margin-left:1px;cursor:pointer;
+    font-size:14px;line-height:1;color:#aab4c5;border-radius:4px;transition:.14s var(--ease)}
+  .xsub-chip .xc-del:hover{color:#b42318;background:#fdeceb}
+  .xsub-chip .xc-del.armed{color:#b42318;background:#fee4e2;font-size:10.5px;padding:2px 5px;font-weight:560}
+  .xsub-add{border:1px dashed #cdd9ea;background:#fff;border-radius:9px;padding:6px 11px;
+    font-family:inherit;font-size:11.5px;color:#495571;cursor:pointer;transition:.16s var(--ease)}
+  .xsub-add:hover{border-color:#a9c3fb;color:#1d4ed8;background:#f7faff}
+  .xsub-form{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px;
+    padding-top:10px;border-top:1px dashed #e2e9f4}
+  .xsub-form[hidden]{display:none}
+  .xsub-form .xf-f{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .xsub-form .xf-f label{font-size:10.5px;color:var(--ink3);font-weight:500;margin:0}
+  .xsub-form .xf-f input{height:30px;font-size:12px;padding:0 9px}
+  .xsub-form .xf-k{flex:0 0 96px}
+  .xsub-form .xf-n{flex:0 0 118px}
+  .xsub-form .xf-range{flex:1 1 210px}
+  .xsub-form .xf-btns{display:flex;gap:7px;flex:none}
+  .xsub-form .xf-btns .btn{height:30px;padding:0 13px;font-size:12px}
+  .xsub-form .bad{border-color:#f0a3a0;background:#fffafa}
+
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:11px}
   .chips-empty{font-size:11.5px;color:var(--ink3);border:1px dashed #dde5f0;border-radius:8px;
     padding:7px 11px;width:100%}
@@ -1216,13 +1252,11 @@
     ],
     XB: [
       {key:'xb',  name:'箱变',    range:'35packtran101-35packtran102,35packtran201-35packtran202', measures:[ S('hvvol'),S('lvvol'),S('hvcur'),S('lvcur'),S('totp'),S('totq'),S('oiltemp'),S('windingtemp'),S('worksta'),R('rsv01-rsv04') ]},
-      // 箱变内部按间隔拆成多个子设备，顺序即界面顺序；可继续往下加 hvr 等层
+      // 箱变子设备层：以下是示例，界面上可自己增删改（层 key / 名称 / 设备范围）
       {key:'byr', name:'变压器室', range:'byr01', measures:[ S('tem'),S('hum'),S('fansta'),S('smoke'),S('doorsta'),R('rsv01-rsv02') ]},
       {key:'lvr', name:'低压室',   range:'lvr01', measures:[ S('lvvol'),S('lvcur'),S('totp'),S('totq'),S('worksta'),R('rsv01-rsv02') ]},
     ],
   };
-  // 默认层级的快照：加载旧配置时用它补齐新增层级（如箱变子设备 byr / lvr）
-  const GROUP_DEFAULTS = JSON.parse(JSON.stringify(GROUPS));
   // 连接配置：保存多套，选中其一使用（无“环境”层级概念）
   const DB_CONFIGS = [
     {id:'cfg1', name:'本地', host:'127.0.0.1',   port:'6667', user:'root', pwd:'root', database:'root.cm'},
@@ -1465,6 +1499,10 @@
   const RANGE_HINT={c:'如 c101-c102',d:'如 d0001-d0020',cu:'如 c001-c074',p:'如 p01-p04',
     m:'如 m01-m04',pcs:'如 pcs0101-pcs0104',pcsd:'如 d01-d04',xb:'如 xb01-xb08',
     byr:'如 byr01',lvr:'如 lvr01'};
+  // 自定义子层的 key 不在上表里，兜底给一个"可展开多台"的示例
+  function rangeHint(lv){
+    return RANGE_HINT[lv.key] || (isSubLayer(lv.key) ? '如 d01-d04' : '如 c101-c102');
+  }
 
   // 下级结构开关：PCS 是单选（有 / 无子设备层），箱变是多选（每个间隔一层）
   const SUB_SWITCH={
@@ -1494,39 +1532,159 @@
     return sw;
   }
 
-  // 箱变子设备层：一层一个勾选框，可全不选（只写箱变本体）也可全选
+  // 箱变子设备层：层定义由用户维护（增 / 改 / 删 + 勾选启用），不在代码里写死层名。
+  // 每层是箱变下的兄弟节点，路径 = 前缀.箱变.该层设备.测点；范围可写 d01-d04 展开多台。
+  let xbForm=null;              // {mode:'add'|'edit', key} —— 当前展开的表单
+  let xbDel={key:null, timer:null};   // 删除的二次确认（3 秒内再点才真删）
+  const LAYER_KEY_RE=/^[A-Za-z][A-Za-z0-9_]*$/;
+
   function setXbSub(key, on){
     // 顺序统一按 groups.XB 的定义归一，避免配置里出现"顺序取决于点击顺序"
     const all=groupSubLayers('XB').map(l=>l.key), want=new Set(state.xbSubs);
     on ? want.add(key) : want.delete(key);
     state.xbSubs=all.filter(k=>want.has(k));
   }
+  // 范围在层级行里改动时，chip 上的范围与台数同步刷新
+  function syncXbChip(key){
+    const lv=GROUPS.XB.find(l=>l.key===key); if(!lv) return;
+    const chip=[...document.querySelectorAll('#xsubRow .xsub-chip')].find(el=>el.dataset.sub===key);
+    if(!chip) return;
+    const n=nodeCount(key)||0;
+    const code=chip.querySelector('.xc-range'), num=chip.querySelector('.xc-num');
+    if(code){ code.textContent=lv.range||'未配置'; code.title=lv.range||'未配置设备范围'; }
+    if(num){ num.textContent=n?n+' 台':'—'; num.classList.toggle('zero',!n); }
+  }
+  function removeXbLayer(key){    const lv=GROUPS.XB.find((l,i)=>i>0&&l.key===key);
+    if(!lv) return;
+    GROUPS.XB=GROUPS.XB.filter(l=>l!==lv);
+    state.xbSubs=state.xbSubs.filter(k=>k!==key);
+    xbForm=null;
+    renderLevels(); refresh();
+    toast(`已删除子设备层 ${key}`);
+  }
+  function openXbForm(mode, key){
+    xbForm={mode, key:key||null};
+    const box=document.getElementById('xsubForm'); if(!box) return;
+    const lv=key?GROUPS.XB.find(l=>l.key===key):null;
+    box.hidden=false;
+    const k=document.getElementById('xfKey'), n=document.getElementById('xfName'), r=document.getElementById('xfRange');
+    k.value=lv?lv.key:''; n.value=lv?lv.name:''; r.value=lv?lv.range:'';
+    [k,n,r].forEach(el=>el.classList.remove('bad'));
+    k.focus(); if(lv) k.select();
+  }
+  function closeXbForm(){
+    xbForm=null;
+    const box=document.getElementById('xsubForm'); if(box) box.hidden=true;
+  }
+  function submitXbForm(){
+    if(!xbForm) return;
+    const kEl=document.getElementById('xfKey'), nEl=document.getElementById('xfName'), rEl=document.getElementById('xfRange');
+    const mode=xbForm.mode, oldKey=xbForm.mode==='edit'?xbForm.key:null;
+    const key=kEl.value.trim(), name=nEl.value.trim()||key, range=rEl.value.trim();
+    [kEl,nEl,rEl].forEach(el=>el.classList.remove('bad'));
+    const bad=(el,msg)=>{ el.classList.add('bad'); el.focus(); toast(msg); };
+    if(!LAYER_KEY_RE.test(key)) return bad(kEl,'层 key 需以字母开头，只能含字母、数字、下划线');
+    if(allLevels().some(l=>l.key===key && l.key!==oldKey)) return bad(kEl,`层 key「${key}」已被其它层级占用`);
+    if(range && !parseRange(range)) return bad(rEl,'设备范围无法解析：用 hvr01-hvr02 或 d01,d02');
+    if(mode==='add'){
+      GROUPS.XB.push({key, name, range, measures:[]});
+      state.xbSubs.push(key);
+    }else{
+      const lv=GROUPS.XB.find(l=>l.key===oldKey);
+      if(!lv){ closeXbForm(); return; }
+      const wasOn=state.xbSubs.includes(oldKey);
+      lv.key=key; lv.name=name; lv.range=range;
+      state.xbSubs=state.xbSubs.map(k=>k===oldKey?key:k);
+      if(!wasOn) state.xbSubs=state.xbSubs.filter(k=>k!==key);
+    }
+    // 顺序按定义归一；只保留真实存在的层
+    state.xbSubs=groupSubLayers('XB').map(l=>l.key).filter(k=>state.xbSubs.includes(k));
+    closeXbForm();
+    renderLevels(); refresh();
+    toast(mode==='add' ? `已添加子设备层 ${key}，展开该行可配测点`
+                       : `已更新子设备层 ${key}，范围与测点按新定义重算`);
+  }
+  function armXbDelete(btn, key){
+    if(xbDel.key===key){
+      clearTimeout(xbDel.timer); xbDel={key:null, timer:null};
+      removeXbLayer(key); return;
+    }
+    if(xbDel.timer) clearTimeout(xbDel.timer);
+    const prev=document.querySelector('#xsubRow .xc-del.armed');
+    if(prev){ prev.classList.remove('armed'); prev.textContent='×'; }
+    xbDel={key, timer:setTimeout(()=>{
+      xbDel={key:null, timer:null};
+      // 不用属性选择器拼 key：配置里可能带特殊字符，属性选择器会直接抛错
+      document.querySelectorAll('#xsubRow .xc-del').forEach(b=>{
+        if(b.dataset.del===key){ b.classList.remove('armed'); b.textContent='×'; }
+      });
+    },3000)};
+    btn.classList.add('armed'); btn.textContent='确认';
+  }
   function renderXbSubs(){
     const subs=groupSubLayers('XB');
-    if(!subs.length) return null;
+    xbForm=null;                      // 重建后表单收起，避免残留半填状态
     const sw=document.createElement('div');
-    sw.className='lv-switch';
+    sw.className='lv-switch xsub-mgr';
     sw.innerHTML=`
       <div class="field">
-        <label>箱变子设备层（可多选 · 未勾选的层不产出设备，路径挂在箱变下）</label>
-        <div class="radio-row" id="xsubRow">
+        <label>箱变子设备层（勾选即启用 · 每层是箱变下的兄弟节点，路径 = 箱变.子设备.测点）</label>
+        <div class="radio-row xsub-row" id="xsubRow">
           ${subs.map(lv=>{
             const on=state.xbSubs.includes(lv.key);
-            return `<label class="radio ${on?'sel':''}" data-sub="${lv.key}" tabindex="0">
-              <input type="checkbox" ${on?'checked':''}>
-              <span>${lv.key} · ${escapeHtml(lv.name)}</span></label>`;
+            const n=nodeCount(lv.key)||0;
+            return `<span class="radio xsub-chip${on?' sel':''}" data-sub="${escapeHtml(lv.key)}"
+                role="checkbox" aria-checked="${on}" tabindex="0">
+              <input type="checkbox" ${on?'checked':''} tabindex="-1" aria-hidden="true">
+              <span class="xc-main" data-edit="${escapeHtml(lv.key)}" title="点击编辑层定义（key / 名称 / 设备范围）">
+                <b>${escapeHtml(lv.key)}</b><span>${escapeHtml(lv.name)}</span>
+              </span>
+              <code class="xc-range" title="${escapeHtml(lv.range||'未配置设备范围')}">${escapeHtml(lv.range||'未配置')}</code>
+              <em class="xc-num${n?'':' zero'}">${n?n+' 台':'—'}</em>
+              <button class="xc-del" data-del="${escapeHtml(lv.key)}" title="删除该层（点两次确认）" tabindex="-1">×</button>
+            </span>`;
           }).join('')}
+          <button class="xsub-add" id="xsubAdd" title="新增一个挂在箱变下的子设备层">＋ 添加子层</button>
+        </div>
+        <div class="xsub-form" id="xsubForm" hidden>
+          <div class="xf-f xf-k"><label>层 key</label><input id="xfKey" placeholder="如 hvr" spellcheck="false"></div>
+          <div class="xf-f xf-n"><label>名称</label><input id="xfName" placeholder="如 高压室"></div>
+          <div class="xf-f xf-range"><label>设备范围</label><input id="xfRange" placeholder="hvr01-hvr02 或 d01-d04，可展开多台" spellcheck="false"></div>
+          <div class="xf-btns">
+            <button class="btn primary" id="xfSave">保存</button>
+            <button class="btn" id="xfCancel">取消</button>
+          </div>
         </div>
       </div>`;
-    sw.querySelectorAll('.radio').forEach(el=>{
+    sw.querySelectorAll('#xsubRow .xsub-chip').forEach(el=>{
       el.addEventListener('click',e=>{
-        e.preventDefault();                 // 勾选状态以 state 为准，别让原生 checkbox 先翻一次
-        const key=el.dataset.sub;
-        setXbSub(key, !state.xbSubs.includes(key));
+        if(e.target.closest('[data-del]')) return;          // 删除按钮单独处理
+        if(e.target.closest('[data-edit]')){ openXbForm('edit', el.dataset.sub); return; }
+        e.preventDefault();                                  // 勾选状态以 state 为准
+        setXbSub(el.dataset.sub, !state.xbSubs.includes(el.dataset.sub));
         renderLevels(); refresh();
       });
       el.addEventListener('keydown',e=>{
         if(e.key===' '||e.key==='Enter'){ e.preventDefault(); el.click(); }
+      });
+    });
+    sw.querySelectorAll('#xsubRow .xc-del').forEach(btn=>{
+      btn.addEventListener('click',e=>{
+        e.preventDefault(); e.stopPropagation();
+        armXbDelete(btn, btn.dataset.del);
+      });
+    });
+    // 这里 sw 还没挂到文档上，只能在自己内部查，不能用 document.getElementById
+    const addBtn=sw.querySelector('#xsubAdd');
+    if(addBtn) addBtn.addEventListener('click',()=>openXbForm('add'));
+    const save=sw.querySelector('#xfSave'), cancel=sw.querySelector('#xfCancel');
+    if(save) save.addEventListener('click',submitXbForm);
+    if(cancel) cancel.addEventListener('click',closeXbForm);
+    ['xfKey','xfName','xfRange'].forEach(id=>{
+      const el=sw.querySelector('#'+id); if(!el) return;
+      el.addEventListener('keydown',e=>{
+        if(e.key==='Enter'){ e.preventDefault(); submitXbForm(); }
+        else if(e.key==='Escape'){ e.preventDefault(); closeXbForm(); }
       });
     });
     return sw;
@@ -1551,7 +1709,7 @@
           </div>
           <div class="lv-fld">
             <input class="lv-inp" type="text" id="range_${lv.key}" value="${lv.range}"
-              placeholder="${RANGE_HINT[lv.key]||'c101-c102'}" spellcheck="false" aria-label="${lv.name}编码范围"
+              placeholder="${rangeHint(lv)}" spellcheck="false" aria-label="${lv.name}编码范围"
               title="连续：d0001-d0020 / c101a-c101d；跳号列举：c101,c201">
           </div>
           <div class="lv-dev${dev?'':' zero'}" id="dev_${lv.key}">${dev?dev+' 台':'—'}</div>
@@ -1587,7 +1745,10 @@
       box.appendChild(el);
       const inp=document.getElementById('range_'+lv.key);
       inp.addEventListener('input',e=>{
-        lv.range=e.target.value; e.target.classList.remove('bad'); refresh();
+        lv.range=e.target.value; e.target.classList.remove('bad');
+        // chip 上的范围与台数跟着输入实时走，否则改完范围 chip 还显示旧数字
+        if(state.group==='XB' && isSubLayer(lv.key)) syncXbChip(lv.key);
+        refresh();
       });
       inp.addEventListener('change',e=>{
         const v=e.target.value.trim(), ok=!v||!!parseRange(v);
@@ -1825,6 +1986,7 @@
       if(!state.xbSubs.includes(lv.key)) continue;
       const e=edgeOf(lv.key), lm=lv.measures;
       lines.push('', `<span class="k">箱变 · ${escapeHtml(lv.name)} ${lv.key}</span>  <span class="cmt"># ${measureCount(lv)} 点/台 · 首 / 末</span>`);
+      if(!e.count){ lines.push('  <span class="dim">未配置设备范围，该层暂不产出设备</span>'); continue; }
       lines.push(`  ${pre}.<span class="hl">${xb.first}</span>.<span class="hl">${e.first}</span>.<span class="hl">${lm[0]?.name||'—'}</span>  <span class="dim">首</span>`);
       lines.push(`  ${pre}.<span class="hl">${xb.last}</span>.<span class="hl">${e.last}</span>.<span class="hl">${last(lm)}</span>  <span class="dim">末</span>`);
     }
@@ -2724,17 +2886,12 @@
         state.activeDbId=cfg.active_connection||DB_CONFIGS[0].id;
         if(cfg.prefix){ state.station=cfg.prefix.station; state.zone=cfg.prefix.zone;
           state.signal=cfg.prefix.signal; state.order=cfg.prefix.order; }
-        if(cfg.groups){ ['BMS','PCS','XB'].forEach(g=>{ if(cfg.groups[g]){
-          const parsed=cfg.groups[g].map(l=>({
+        if(cfg.groups){ ['BMS','PCS','XB'].forEach(g=>{ if(cfg.groups[g] && cfg.groups[g].length){
+          // 层级与子层完全以配置为准：不按 key 回补默认层，否则用户删掉的层会复活
+          GROUPS[g]=cfg.groups[g].map(l=>({
             key:l.key,name:l.name,range:l.range,
             measures:(l.measures||[]).map(m=>typeof m==='string'?parseMeasure(m):m).filter(Boolean),
           }));
-          // 旧配置里没有的层级（新增的箱变子设备 byr / lvr）按默认定义补回来
-          const have=new Set(parsed.map(l=>l.key));
-          (GROUP_DEFAULTS[g]||[]).forEach(d=>{
-            if(!have.has(d.key)) parsed.push(JSON.parse(JSON.stringify(d)));
-          });
-          GROUPS[g]=parsed;
         } }); }
         if(typeof cfg.pcs_sub==='boolean') state.pcsSub=cfg.pcs_sub;
         // 箱变子层：新配置读 xb_subs 列表，旧配置的 xb_sub: true 当作"全开"；
