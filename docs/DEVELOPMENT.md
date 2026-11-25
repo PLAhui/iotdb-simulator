@@ -39,7 +39,7 @@ python3 -m unittest discover -s tests -t . -v
 |---|---|
 | `tests/test_parser.py` | 三种范围写法、补零宽度、字母区间、非法输入、测点区间展开与计数 |
 | `tests/test_engine.py` | 节点数相乘、PCS 子层开关、`writable_devices` 只算有测点的层、路径顺序 `forward/reverse` |
-| `tests/test_rules.py` | 匹配优先级（`t*` 不抢 `totp`、`*de` 不抢 `workmode`）、`yc/yx` 类型分支、六种模型值域 |
+| `tests/test_rules.py` | 匹配优先级（`t*` 不抢 `totp`、`*de` 不抢 `workmode`/`runmode`）、通用兜底随 signal 切换、`yc/yx` 类型分支、六种模型值域、老配置补兜底 |
 
 测试全部是纯函数级，不需要 IoTDB，也不需要起服务。
 

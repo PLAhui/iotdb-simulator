@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -41,6 +42,18 @@ class Rule:
     model: str
     match: str
     period: int = 86400  # 正弦周期（秒），仅 sine 使用
+    # 规则适用的信号类型：any（默认，遥测/遥信都生效）| yc（仅遥测）| yx（仅遥信）。
+    # 通用兜底规则靠它区分——同一个测点名在 yc 下按遥测值生成、在 yx 下按 0/1 生成。
+    signal: str = "any"
+
+
+RULE_SIGNALS = ("any", "yc", "yx")
+
+
+def norm_signal(value: Any, default: str = "any") -> str:
+    """规则适用范围归一：只认 any / yc / yx，其余（含空）落到 default。"""
+    s = str(value or "").strip().lower()
+    return s if s in RULE_SIGNALS else default
 
 
 # 写入对象（设备大类）。顺序即 UI 展示顺序，也是日志里的排列顺序。
@@ -151,9 +164,14 @@ def default_config() -> AppConfig:
             Rule("温度", 15, 45, "℃", "sine", "t*, *tem"),
             Rule("荷电状态", 0, 100, "", "walk", "soc, soe, soh"),
             Rule("功率电流", -500, 500, "", "sine", "totp, toti, totq"),
-            Rule("电量", 0, 1000000, "", "mono", "*ce, *de"),
-            Rule("状态位", 0, 2, "", "state", "workmode, relaysta"),
+            Rule("电量", 0, 1000000, "", "mono", "*ce, *dayde, *totde"),
+            Rule("状态位", 0, 2, "", "state", "workmode, worksta, runmode, relaysta"),
             Rule("预留", 0, 0, "", "const", "rsv01-rsv07"),
+            # 通用兜底：match 为 "*"，只在没有更具体的规则命中时才生效（特异性最低）。
+            # 少了这两条，need / worksta / runmode / maxcep / hvcur 这类没被上面覆盖的
+            # 测点在遥测下会一直取常量 0，看着像"数据没生成"。
+            Rule("通用遥测", 0, 100, "", "walk", "*", 86400, "yc"),
+            Rule("通用遥信", 0, 1, "", "state", "*", 86400, "yx"),
         ],
         write=WriteConfig(),
     )
@@ -240,13 +258,35 @@ def config_from_dict(data: Dict[str, Any]) -> AppConfig:
 
     pcs_subs = _picked_subs("PCS", "pcs_subs", "pcsSubs", "pcs_sub", "pcsSub")
     xb_subs = _picked_subs("XB", "xb_subs", "xbSubs", "xb_sub", "xbSub")
+    # 旧默认规则里有两处笔误，只在"cat + match 与旧默认值完全一致"时才替换，
+    # 用户自己改过的规则一律不动：
+    #   *de 会把 runmode（运行模式）当成放电量，生成 1000/2000… 的累计值；
+    #   状态位漏了 worksta / runmode，导致它们要么走兜底、要么被 *de 抢走。
+    _LEGACY_MATCH = {
+        ("电量", "*ce, *de"): "*ce, *dayde, *totde",
+        ("状态位", "workmode, relaysta"): "workmode, worksta, runmode, relaysta",
+    }
     rules = []
     for r in merged.get("rules", []):
+        cat = r.get("cat", "")
+        match = r.get("match", "")
+        match = _LEGACY_MATCH.get((str(cat).strip(), str(match).strip()), match)
         rules.append(Rule(
-            cat=r.get("cat", ""), min=float(r.get("min", 0)), max=float(r.get("max", 0)),
+            cat=cat, min=float(r.get("min", 0)), max=float(r.get("max", 0)),
             unit=r.get("unit", ""), model=r.get("model", "const"),
-            match=r.get("match", ""), period=int(r.get("period", 86400)),
+            match=match, period=int(r.get("period", 86400)),
+            # 旧配置没有 signal 字段，按 any 处理，行为与之前一致
+            signal=norm_signal(r.get("signal")),
         ))
+    # 通用兜底：老配置带的是完整 rules 列表、没有 "*" 行，直接用会让 need / worksta /
+    # runmode / hvcur 这类没被具体规则覆盖的测点在遥测下恒为 0。这里只在"整张表都没有
+    # 通配兜底"时补上默认的通用遥测 + 通用遥信；只要用户自己写了任意一条 "*" 规则就
+    # 原样保留，不把删掉的行又长回来。
+    has_fallback = any(raw.strip() == "*" for r in rules
+                       for raw in re.split(r"[,，\s]+", r.match or ""))
+    if not has_fallback:
+        rules.extend(copy.deepcopy(r) for r in default_config().rules
+                     if (r.match or "").strip() == "*")
     wd = merged.get("write", {}) or {}
     # points_per_device 留空（null/""/0）表示持续写入，不是 0 点
     ppd_raw = wd.get("points_per_device", 10)

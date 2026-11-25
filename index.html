@@ -387,6 +387,12 @@
   #rule .ruleNum,#rule .ruleSel{height:28px}
   #rule .card-hd{margin-bottom:11px}
   #rule .notice{padding:7px 12px;margin:0 0 11px;line-height:1.55}
+  /* 与当前信号类型不符的规则（遥测页里的通用遥信、遥信页里的通用遥测）淡显 */
+  #rule tr.rule-off td{opacity:.45}
+  #rule tr.rule-off:hover td{background:#fff}
+  #rule .fb-tag{font-style:normal;font-size:9.5px;letter-spacing:.02em;color:#7c5cf0;
+    background:#f2eeff;border:1px solid #e4dbff;border-radius:4px;padding:0 4px;margin-left:5px}
+  #rule .ruleSig{min-width:78px;padding:0 6px}
 
   .pathbar{display:flex;flex-wrap:wrap;gap:5px;align-items:center;
     background:linear-gradient(180deg,#fbfcfe,#f7f9fd);border:1px solid var(--line);
@@ -1054,12 +1060,12 @@
         </span>
         <div class="card-tt">
           <h2>测点生成规则</h2>
-          <p class="desc">仅 v* / t* 为编号序列，其余为固定名单个测点；<b>测点类型由信号类型统一决定：yc 遥测 → FLOAT，yx 遥信 → BOOLEAN</b>（与测点语义无关）。值域与变化模型均可在此设置。</p>
+          <p class="desc">仅 v* / t* 为编号序列，其余为固定名单个测点；<b>测点类型由信号类型统一决定：yc 遥测 → FLOAT，yx 遥信 → BOOLEAN</b>。「通用遥测 / 通用遥信」是兜底规则，只在没有更具体的规则命中时生效，避免未覆盖的测点一直是 0。</p>
         </div>
       </div>
       <div class="notice" id="typeNotice" style="margin:0 0 16px"></div>
       <table>
-        <thead><tr><th>测点类别</th><th>类型</th><th>值域</th><th>变化模型</th><th>匹配规则</th></tr></thead>
+        <thead><tr><th>测点类别</th><th>适用</th><th>类型</th><th>值域</th><th>变化模型</th><th>匹配规则</th></tr></thead>
         <tbody id="ruleRows"></tbody>
       </table>
       <div class="model-legend">
@@ -2402,36 +2408,55 @@
     ['mono','单调递增 mono'], ['const','常量 const'], ['flip','状态翻转 flip'],
   ];
   const BOOL_MODELS = ['state','const','flip'];
+  // 规则适用信号：any 两种都生效；yc / yx 只对对应信号生效（供通用兜底区分遥测与遥信）
+  const SIG_OPTIONS = [['any','全部'],['yc','遥测 yc'],['yx','遥信 yx']];
+  // 兜底规则：match 为 "*"，特异性最低，只在没有更具体规则命中时生效
+  const FALLBACK_RULES=[
+    {cat:'通用遥测', min:0, max:100, unit:'', model:'walk',  match:'*', sig:'yc'},
+    {cat:'通用遥信', min:0, max:1,   unit:'', model:'state', match:'*', sig:'yx'},
+  ];
   const RULE_ROWS = [
-    {cat:'电压',     min:3.0, max:4.2,     unit:'V',  model:'walk',  match:'v*, *vol'},
-    {cat:'温度',     min:15,  max:45,      unit:'℃', model:'sine',  match:'t*, *tem'},
-    {cat:'荷电状态', min:0,   max:100,     unit:'',   model:'walk',  match:'soc, soe, soh'},
-    {cat:'功率电流', min:-500,max:500,     unit:'',   model:'sine',  match:'totp, toti, totq'},
-    {cat:'电量',     min:0,   max:1000000, unit:'',   model:'mono',  match:'*ce, *de'},
-    {cat:'状态位',   min:0,   max:2,       unit:'',   model:'state', match:'workmode, relaysta'},
-    {cat:'预留',     min:0,   max:0,       unit:'',   model:'const', match:'rsv01-rsv07'},
+    {cat:'电压',     min:3.0, max:4.2,     unit:'V',  model:'walk',  match:'v*, *vol', sig:'any'},
+    {cat:'温度',     min:15,  max:45,      unit:'℃', model:'sine',  match:'t*, *tem', sig:'any'},
+    {cat:'荷电状态', min:0,   max:100,     unit:'',   model:'walk',  match:'soc, soe, soh', sig:'any'},
+    {cat:'功率电流', min:-500,max:500,     unit:'',   model:'sine',  match:'totp, toti, totq', sig:'any'},
+    {cat:'电量',     min:0,   max:1000000, unit:'',   model:'mono',  match:'*ce, *dayde, *totde', sig:'any'},
+    {cat:'状态位',   min:0,   max:2,       unit:'',   model:'state', match:'workmode, worksta, runmode, relaysta', sig:'any'},
+    {cat:'预留',     min:0,   max:0,       unit:'',   model:'const', match:'rsv01-rsv07', sig:'any'},
+    ...FALLBACK_RULES.map(r=>({...r})),
   ];
   function renderRules(){
-    const isBool=(state.signal==='yx'), type=isBool?'BOOLEAN':'FLOAT';
+    const sig=state.signal, isBool=(sig==='yx');
     document.getElementById('typeNotice').innerHTML=isBool
-      ? '<b>当前信号类型 yx（遥信）</b> → 所有测点类型 <code>BOOLEAN</code>，值 0/1（false/true），值域固定不可改。'
-      : '<b>当前信号类型 yc（遥测）</b> → 所有测点类型 <code>FLOAT</code>，值域与变化模型均可编辑。';
+      ? `<b>当前信号类型 yx（遥信）</b> → 生效的是「全部」与「遥信 yx」规则，所有测点类型 <code>BOOLEAN</code>，值 0/1（false/true），值域固定不可改。`
+      : `<b>当前信号类型 yc（遥测）</b> → 生效的是「全部」与「遥测 yc」规则，所有测点类型 <code>FLOAT</code>，值域与变化模型均可编辑。`;
     document.getElementById('ruleRows').innerHTML=RULE_ROWS.map((r,i)=>{
-      const opts=MODEL_OPTIONS.filter(([k])=>!isBool||BOOL_MODELS.includes(k));
-      const cur=isBool&&!BOOL_MODELS.includes(r.model)?'flip':r.model;
-      const domain=isBool?'<span class="roDomain">0 / 1</span>'
+      const rs=r.sig||'any';
+      // 这条规则实际按哪种信号生成值：专有规则看自己的 sig，any 跟随页头信号
+      const eff=rs==='any'?sig:rs, effBool=(eff==='yx');
+      const active=(rs==='any'||rs===sig);
+      const opts=MODEL_OPTIONS.filter(([k])=>!effBool||BOOL_MODELS.includes(k));
+      const cur=effBool&&!BOOL_MODELS.includes(r.model)?'flip':r.model;
+      const domain=effBool?'<span class="roDomain">0 / 1</span>'
         : `<span class="domain"><input type="number" class="ruleNum" id="rule_min_${i}" value="${r.min}"><i>~</i><input type="number" class="ruleNum" id="rule_max_${i}" value="${r.max}"><em>${r.unit}</em></span>`;
       const sel=`<select class="ruleSel" id="rule_model_${i}">${opts.map(([k,label])=>`<option value="${k}" ${k===cur?'selected':''}>${label}</option>`).join('')}</select>`;
-      return `<tr><td>${r.cat}</td><td><code>${type}</code></td><td>${domain}</td><td>${sel}</td><td><code>${r.match}</code></td></tr>`;
+      const sigSel=`<select class="ruleSel ruleSig" id="rule_sig_${i}" title="规则适用的信号类型">${SIG_OPTIONS.map(([k,label])=>`<option value="${k}" ${k===rs?'selected':''}>${label}</option>`).join('')}</select>`;
+      return `<tr class="${active?'':'rule-off'}"><td>${r.cat}${r.match.trim()==='*'?' <em class="fb-tag">兜底</em>':''}</td>`
+        + `<td>${sigSel}</td><td><code>${effBool?'BOOLEAN':'FLOAT'}</code></td>`
+        + `<td>${domain}</td><td>${sel}</td><td><code>${r.match}</code></td></tr>`;
     }).join('');
     // 仅更新数据模型，不调用 refresh —— 避免重建表格导致输入失焦
     RULE_ROWS.forEach((r,i)=>{
-      if(!isBool) ['min','max'].forEach(k=>{
+      const eff=((r.sig||'any')==='any')?sig:(r.sig||'any');
+      if(eff!=='yx') ['min','max'].forEach(k=>{
         const el=document.getElementById(`rule_${k}_${i}`);
         if(el) el.addEventListener('input',e=>{ r[k]=e.target.value===''?0:Number(e.target.value); });
       });
       const el=document.getElementById(`rule_model_${i}`);
       if(el) el.addEventListener('change',e=>{ r.model=e.target.value; });
+      const sg=document.getElementById(`rule_sig_${i}`);
+      // 改适用范围会让「类型 / 值域」两列换形态，必须重建一次表格
+      if(sg) sg.addEventListener('change',e=>{ r.sig=e.target.value; renderRules(); });
     });
   }
 
@@ -2747,7 +2772,8 @@
       active_connection: state.activeDbId,
       prefix:{station:state.station,zone:state.zone,signal:state.signal,order:state.order},
       groups: GROUPS, pcs_subs: state.pcsSubs, xb_subs: state.xbSubs,
-      rules: RULE_ROWS.map(r=>({cat:r.cat,min:r.min,max:r.max,unit:r.unit,model:r.model,match:r.match})),
+      rules: RULE_ROWS.map(r=>({cat:r.cat,min:r.min,max:r.max,unit:r.unit,model:r.model,
+        match:r.match,signal:r.sig||'any'})),
       write:{
         interval_ms: Number(document.getElementById('interval').value)||1000,
         mode: document.getElementById('mode').value.includes('history')?'history':'realtime',
@@ -2899,7 +2925,13 @@
         state.xbSubs=readSubs('XB', cfg.xb_subs, cfg.xb_sub);
         if(cfg.rules&&cfg.rules.length){ RULE_ROWS.splice(0,RULE_ROWS.length,...cfg.rules.map(r=>({
           cat:r.cat,min:r.min,max:r.max,unit:r.unit,model:r.model,match:r.match,
-        }))); }
+          sig:r.signal||'any',
+        })));
+          // 老配置的规则表没有 "*" 兜底行：补上两条默认兜底，
+          // 否则没被具体规则覆盖的测点（need / worksta / hvcur…）在遥测下会一直是 0
+          const hasStar=RULE_ROWS.some(r=>String(r.match||'').split(/[,，\s]+/).includes('*'));
+          if(!hasStar) RULE_ROWS.push(...FALLBACK_RULES.map(r=>({...r})));
+        }
         if(cfg.write){ if(Array.isArray(cfg.write.targets)&&cfg.write.targets.length){
             state.targets=TARGET_KEYS.filter(g=>cfg.write.targets.map(x=>String(x).toUpperCase()).includes(g));
           }

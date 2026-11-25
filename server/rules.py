@@ -30,15 +30,23 @@ def _glob_match(name: str, pattern: str) -> bool:
 
 
 class RuleMatcher:
-    """测点名 → 规则。预编译匹配表，避免每点重复解析。"""
+    """测点名 → 规则。预编译匹配表，避免每点重复解析。
 
-    def __init__(self, rules: List[Rule]):
+    signal 用来过滤「只对某种信号生效」的规则：通用遥测（yc）/ 通用遥信（yx）。
+    signal=any 的普通规则在两种信号下都参与匹配，旧配置行为不变。
+    """
+
+    def __init__(self, rules: List[Rule], signal: str = "any"):
+        self.signal = signal if signal in ("yc", "yx") else "any"
         self.rules = rules
         self._cache: Dict[str, Optional[Rule]] = {}
         # 预编译为 (规则, 匹配器, 特异性)；特异性越高越优先，避免 t* 抢走 totp、
         # *de 抢走 workmode 这类误匹配。匹配顺序：精确名 > 范围展开 > 长前缀 > 短前缀。
+        # 通用兜底规则 match="*"，特异性最低，只在没有更具体的规则命中时才生效。
         self._compiled: List[tuple] = []
         for rule in rules:
+            if not self._applies(rule):
+                continue
             for raw in re.split(r"[,，\s]+", rule.match):
                 if not raw:
                     continue
@@ -58,6 +66,13 @@ class RuleMatcher:
                         suffix = raw.rsplit("*", 1)[1]
                         self._compiled.append((rule, ("glob", raw, prefix, suffix), 10 + len(prefix) + len(suffix)))
         self._compiled.sort(key=lambda x: -x[2])
+
+    def _applies(self, rule: Rule) -> bool:
+        """这条规则是否适用于当前信号类型。"""
+        sig = (getattr(rule, "signal", "any") or "any").lower()
+        if sig in ("any", "") or self.signal == "any":
+            return True
+        return sig == self.signal
 
     def match(self, name: str) -> Optional[Rule]:
         if name in self._cache:
@@ -97,8 +112,13 @@ class Generator:
         return max(lo, min(hi, v))
 
     def _float_value(self, name: str, rule: Optional[Rule], ts_ms: int, key: str) -> float:
-        lo, hi = (rule.min, rule.max) if rule else (0.0, 1.0)
-        model = rule.model if rule and rule.model in self.MODELS else "const"
+        if rule is None:
+            # 连通用兜底规则都没命中（规则表被清空、或只剩不适用当前信号的规则）：
+            # 给一个通用的波动值，而不是退回常量 0——否则整列测点看着像没生成数据。
+            lo, hi, model = 0.0, 100.0, "walk"
+        else:
+            lo, hi = rule.min, rule.max
+            model = rule.model if rule.model in self.MODELS else "const"
         if hi < lo:
             lo, hi = hi, lo
         span = hi - lo

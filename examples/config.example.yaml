@@ -107,15 +107,19 @@ xb_subs: []
 
 # 测点 → 值域 / 单位 / 变化模型
 #   model: walk 随机游走 | sine 正弦 | mono 单调累加 | state 三档 | const 常量 | flip 翻转
-#   match: 逗号分隔，支持精确名、区间、通配（v* / *vol / t* / *tem）
+#   match:  逗号分隔，支持精确名、区间、通配（v* / *vol / t* / *tem）
+#   signal: any 两种信号都生效 | yc 只对遥测 | yx 只对遥信
 rules:
-  - {cat: 电压,     min: 3.0,   max: 4.2,      unit: V,  model: walk,  match: "v*, *vol",           period: 86400}
-  - {cat: 温度,     min: 15.0,  max: 45.0,     unit: ℃,  model: sine,  match: "t*, *tem",           period: 86400}
-  - {cat: 荷电状态, min: 0.0,   max: 100.0,    unit: '', model: walk,  match: "soc, soe, soh",      period: 86400}
-  - {cat: 功率电流, min: -500.0, max: 500.0,   unit: '', model: sine,  match: "totp, toti, totq",   period: 86400}
-  - {cat: 电量,     min: 0.0,   max: 1000000.0, unit: '', model: mono,  match: "*ce, *de",           period: 86400}
-  - {cat: 状态位,   min: 0.0,   max: 2.0,      unit: '', model: state, match: "workmode, relaysta", period: 86400}
-  - {cat: 预留,     min: 0.0,   max: 0.0,      unit: '', model: const, match: "rsv01-rsv07",        period: 86400}
+  - {cat: 电压,     min: 3.0,   max: 4.2,      unit: V,  model: walk,  match: "v*, *vol",           period: 86400, signal: any}
+  - {cat: 温度,     min: 15.0,  max: 45.0,     unit: ℃,  model: sine,  match: "t*, *tem",           period: 86400, signal: any}
+  - {cat: 荷电状态, min: 0.0,   max: 100.0,    unit: '', model: walk,  match: "soc, soe, soh",      period: 86400, signal: any}
+  - {cat: 功率电流, min: -500.0, max: 500.0,   unit: '', model: sine,  match: "totp, toti, totq",   period: 86400, signal: any}
+  - {cat: 电量,     min: 0.0,   max: 1000000.0, unit: '', model: mono,  match: "*ce, *dayde, *totde", period: 86400, signal: any}
+  - {cat: 状态位,   min: 0.0,   max: 2.0,      unit: '', model: state, match: "workmode, worksta, runmode, relaysta", period: 86400, signal: any}
+  - {cat: 预留,     min: 0.0,   max: 0.0,      unit: '', model: const, match: "rsv01-rsv07",        period: 86400, signal: any}
+  # 通用兜底：match 为 "*"，只在没有更具体的规则命中时生效，避免未覆盖的测点一直是 0
+  - {cat: 通用遥测, min: 0.0,   max: 100.0,    unit: '', model: walk,  match: "*",                 period: 86400, signal: yc}
+  - {cat: 通用遥信, min: 0.0,   max: 1.0,      unit: '', model: state, match: "*",                 period: 86400, signal: yx}
 
 write:
   interval_ms: 1000        # 相邻点时间间隔（毫秒）

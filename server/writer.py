@@ -79,7 +79,8 @@ class Writer:
         self.log = log
         self.stop_event = stop_event
         self.progress = progress
-        self.matcher = RuleMatcher(cfg.rules)
+        # 按当前信号类型过滤规则：通用遥测只在 yc 生效、通用遥信只在 yx 生效
+        self.matcher = RuleMatcher(cfg.rules, cfg.prefix.signal)
         # 写入对象：只生成并写入选中的设备大类（BMS / PCS / 箱变 的任意组合）
         self.targets = write_targets(cfg)
         self.generator = Generator(cfg, self.matcher)

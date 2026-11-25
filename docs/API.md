@@ -35,7 +35,9 @@ GET /
   "pcs_subs": [],
   "xb_subs": ["byr"],
   "rules": [{"cat": "电压", "min": 3.0, "max": 4.2, "unit": "V",
-             "model": "walk", "match": "v*, *vol", "period": 86400}],
+             "model": "walk", "match": "v*, *vol", "period": 86400, "signal": "any"},
+            {"cat": "通用遥测", "min": 0, "max": 100, "unit": "",
+             "model": "walk", "match": "*", "period": 86400, "signal": "yc"}],
   "write": {"interval_ms": 1000, "mode": "realtime", "batch": 100,
             "points_per_device": 10, "history_start": "", "rate_limit": 0,
             "threads": 4, "dry_run": false}

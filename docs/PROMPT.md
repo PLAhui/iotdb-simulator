@@ -40,8 +40,10 @@ groups:                 # BMS / PCS / XB 三组
   XB:  [{key: xb, ...}, {key: byr, ...}, {key: lvr, ...}]   # 第一层是本体，之后每层都是一个子设备层（可增删改）
 pcs_subs: []            # 启用的 PCS 子设备层 key 列表（列表外的层不展开）
 xb_subs: []             # 启用的箱变子设备层 key，如 [byr, lvr]；层定义可在界面或 groups.XB 里增删改
-rules:                  # 测点 → 值域/单位/变化模型
-  - {cat: 电压, min: 3.0, max: 4.2, unit: V, model: walk, match: "v*, *vol", period: 86400}
+rules:                  # 测点 → 值域/单位/变化模型（signal: any|yc|yx）
+  - {cat: 电压, min: 3.0, max: 4.2, unit: V, model: walk, match: "v*, *vol", period: 86400, signal: any}
+  - {cat: 通用遥测, min: 0, max: 100, unit: '', model: walk, match: "*", period: 86400, signal: yc}
+  - {cat: 通用遥信, min: 0, max: 1, unit: '', model: state, match: "*", period: 86400, signal: yx}
 write:
   interval_ms: 1000
   mode: realtime        # realtime | history
@@ -80,10 +82,13 @@ write:
 ### 4. 生成规则引擎
 
 - 规则用**通配匹配**测点名：`v*`、`*vol`、`t*`、`*tem`、`soc`、`rsv01-rsv07`。
-- 匹配优先级必须做**特异性排序**，否则 `t*` 会抢走 `totp`、`*de` 会抢走 `workmode`：
+- 匹配优先级必须做**特异性排序**，否则 `t*` 会抢走 `totp`、`*de` 会抢走 `workmode`/`runmode`：
   1. 精确名 / 区间展开 → 权重 100
   2. 单字母+`*` 的编号序列（`v*`）→ 只匹配「字母+数字」型名字，权重 40
   3. 前后缀 glob → 权重 `10 + 前缀长 + 后缀长`
+  4. 纯通配 `*` → 权重 10，通用兜底
+- 每条规则带 `signal`（`any` / `yc` / `yx`），匹配器按当前 `prefix.signal` 过滤，所以「通用遥测」和「通用遥信」两条兜底不会互相抢。
+- **未命中具体规则的测点必须有值**：默认规则表里带 `match: "*"` 的通用遥测（`walk 0~100`）与通用遥信（`state 0/1`），否则 `need`、`worksta`、`maxcep`、`hvcur` 这类测点在遥测下会一直是常量 0；规则表被清空时代码层还有随机游走兜底。
 - 六种变化模型：
   - `walk`：在上次值上随机游走，步长 = 量程 2%，越界按半幅回弹
   - `sine`：`mid + sin(2πt/period + 随机相位) × 量程/2`
